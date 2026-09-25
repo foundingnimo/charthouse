@@ -134,7 +134,8 @@ supports Claude skills or shared `SKILL.md` files.
    Expedition can take significant time and tokens. It does not edit product
    code. Charthouse checkpoints each accepted survey report. If the session stops,
    a new session uses `charthouse expedition resume` and repeats only reports whose
-   files or baseline no longer validate. After synthesis starts, the draft Map
+   files or structural coverage no longer validate. Edits during the
+   Expedition do not make accepted reports stale by themselves. After synthesis starts, the draft Map
    and your approvals stay in the Expedition until publication.
 
 6. After publication, review the generated repository state before committing

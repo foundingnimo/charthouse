@@ -199,7 +199,7 @@ const TOOLS = new Map([
     }, ["role", "file"]),
     output_schema: outputSchema({ valid: { type: "boolean" }, role: { type: "string" }, file: { type: "string" }, bytes: { type: "integer" }, errors: { type: "array" }, warnings: { type: "array" }, counts: { type: "object" } }),
     run(state, input, root) {
-      return validateSurveyReport(root, state, input);
+      return validateSurveyReport(root, state, { role: input.role, file: input.file });
     }
   }]
 ]);

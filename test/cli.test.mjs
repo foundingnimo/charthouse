@@ -285,6 +285,51 @@ test("a staged change to findings needs a new approval before publication", () =
   assert.ok(readMap().anomalies.some((item) => item.id === "anomaly-late"));
 });
 
+test("accepted surveys stay valid when an edit and a reconcile change only file contents", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const expedition = acceptAllSurveys(sandbox, run);
+  const source = join(sandbox, "packages/auth/src/token.ts");
+  writeFileSync(source, `${readFileSync(source, "utf8")}export const edited = true;\n`);
+  // The edit is pending until the Stop hook reconciles. Synthesis waits for it.
+  assert.deepEqual(expeditionJson("resume", "E-0001").next_roles, []);
+  const pending = run("expedition", "synthesize", "E-0001", "--root", sandbox);
+  assert.equal(pending.status, 1);
+  assert.match(pending.stderr, /charthouse reconcile/);
+  const before = readMap().generated_at;
+  assert.equal(JSON.parse(run("reconcile", "--root", sandbox, "--json").stdout).updated, true);
+  assert.notEqual(readMap().generated_at, before);
+
+  const resumed = expeditionJson("resume", "E-0001");
+  assert.equal(resumed.status, "ready-for-synthesis");
+  assert.deepEqual(resumed.next_roles, []);
+  // Re-accepting an unchanged report stays idempotent.
+  const report = expedition.surveys.structure.report_path;
+  assert.equal(expeditionJson("accept-report", "E-0001", "--role", "structure", "--file", report).accepted, true);
+  assert.equal(expeditionJson("synthesize", "E-0001").outcome, "Synthesis started");
+});
+
+test("a structural change or a new scan policy still makes accepted surveys stale", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  acceptAllSurveys(sandbox, run);
+  mkdirSync(join(sandbox, "packages/new"), { recursive: true });
+  writeFileSync(join(sandbox, "packages/new/package.json"), `${JSON.stringify({ name: "new", version: "1.0.0" })}\n`);
+  assert.equal(run("map", "update", "--root", sandbox).status, 0);
+  const structural = expeditionJson("resume", "E-0001");
+  assert.equal(structural.status, "surveying");
+  for (const role of ["structure", "capability"]) {
+    assert.ok(structural.next_roles.includes(role), role);
+    assert.ok(structural.surveys[role].current_errors.some((error) => error.code === "coverage-missing"), role);
+  }
+
+  acceptAllSurveys(sandbox, run);
+  assert.deepEqual(expeditionJson("resume", "E-0001").next_roles, []);
+  editConfig((config) => config.scan.gitignored.exclude.push("docs/private/**"));
+  assert.equal(run("map", "update", "--root", sandbox).status, 0);
+  const policy = expeditionJson("resume", "E-0001");
+  assert.deepEqual(policy.next_roles, ["structure", "capability", "documentation", "duplication"]);
+  assert.ok(policy.surveys.documentation.current_errors.some((error) => error.code === "stale-config"));
+});
+
 test("a content-only Map update after synthesis keeps the Expedition publishable", () => {
   assert.equal(run("init", "--root", sandbox).status, 0);
   approveExpeditionMap(sandbox, run);

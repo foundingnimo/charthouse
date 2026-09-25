@@ -161,7 +161,11 @@ function validateToolGaps(items, errors) {
   });
 }
 
-function validateBaseline(baseline, state, errors) {
+// `accepted` revalidates a report that an Expedition already accepted against
+// the Map of its time. A newer Map time or commit alone does not make it stale:
+// the role checks still compare it with the current Map's structure, and a new
+// scan configuration still fails.
+function validateBaseline(baseline, state, errors, { accepted = false } = {}) {
   if (!requireObject(baseline, "baseline", errors)) return;
   for (const field of Object.keys(baseline)) {
     if (!["commit", "config_digest", "map_generated_at"].includes(field)) errors.push(finding("unknown-field", `baseline.${field}`, `baseline.${field} is not part of the survey baseline.`));
@@ -174,14 +178,14 @@ function validateBaseline(baseline, state, errors) {
   if (!/^sha256:[0-9a-f]{64}$/.test(baseline.config_digest)) {
     errors.push(finding("digest", "baseline.config_digest", "baseline.config_digest must be a SHA-256 digest."));
   }
-  if (baseline.commit !== state.map.baseline?.commit) {
+  if (!accepted && baseline.commit !== state.map.baseline?.commit) {
     errors.push(finding("stale-baseline", "baseline.commit", "The survey commit does not match the deterministic Map baseline."));
   }
   if (baseline.config_digest !== state.fingerprints.config_digest) {
     errors.push(finding("stale-config", "baseline.config_digest", "The survey configuration does not match the current scan configuration."));
   }
   if (!requireString(baseline.map_generated_at, "baseline.map_generated_at", errors)) return;
-  if (baseline.map_generated_at !== state.map.generated_at) {
+  if (!accepted && baseline.map_generated_at !== state.map.generated_at) {
     errors.push(finding("stale-map", "baseline.map_generated_at", "The survey report does not match the current deterministic Map."));
   }
 }
@@ -355,7 +359,7 @@ function validateDuplicateGroups(report, state, errors) {
   }
 }
 
-function validateParsedReport(report, expectedRole, state) {
+function validateParsedReport(report, expectedRole, state, options = {}) {
   const errors = [];
   const warnings = [];
   if (!requireObject(report, "report", errors)) return { errors, warnings };
@@ -372,7 +376,7 @@ function validateParsedReport(report, expectedRole, state) {
   } else if (report.role !== expectedRole) {
     errors.push(finding("role-mismatch", "role", `Expected a ${expectedRole} report but found ${report.role}. The output file may have been overwritten.`));
   }
-  validateBaseline(report.baseline, state, errors);
+  validateBaseline(report.baseline, state, errors, options);
   requireString(report.summary, "summary", errors);
   validateFindings(report.findings, "findings", errors, state);
   validateFindings(report.unresolved, "unresolved", errors, state);
@@ -384,7 +388,7 @@ function validateParsedReport(report, expectedRole, state) {
   return { errors, warnings };
 }
 
-export function validateSurveyReport(root, state, { role, file }) {
+export function validateSurveyReport(root, state, { role, file, accepted = false }) {
   const absolute = repoPath(root, file);
   if (!existsSync(absolute)) throw new Error(`Survey report does not exist: ${file}`);
   const real = realpathSync(absolute);
@@ -417,8 +421,10 @@ export function validateSurveyReport(root, state, { role, file }) {
       counts: {}
     };
   }
-  const { errors, warnings } = validateParsedReport(report, role, state);
-  const reconciliation = repositoryReconciliationStatus(root, state.config);
+  const { errors, warnings } = validateParsedReport(report, role, state, { accepted });
+  // A new report must match a reconciled Map. An edit after acceptance is
+  // checked through the Map once reconciliation records it.
+  const reconciliation = accepted ? { required: false } : repositoryReconciliationStatus(root, state.config);
   if (reconciliation.required) {
     errors.push(finding("repository-changed", "baseline", `Repository evidence changed during the surveys: ${reconciliation.reasons.join(", ")}. Reconcile and rerun the affected surveys.`));
   }

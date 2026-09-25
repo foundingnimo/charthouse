@@ -175,8 +175,9 @@ Survey reports use `schemas/survey-report.schema.json`. Their baseline contains
 the deterministic Map commit, Map generation time, and configuration digest.
 The validator also refuses repository evidence that changed after the Map was
 created, or that the deterministic Map omitted or excluded. Before synthesis, the Expedition
-transaction revalidates accepted digests on resume and identifies only the
-survey roles that must run again. After synthesis starts, resume checks the
+transaction revalidates accepted reports on resume and identifies only the
+survey roles that must run again. An accepted report is checked against the
+structure of the current Map, not its generation time or commit. After synthesis starts, resume checks the
 recorded synthesis inputs instead. Repository patterns can
 use literal text, `*`, `**`, and `?`; brace
 and character-class globs are not supported. The validator returns all

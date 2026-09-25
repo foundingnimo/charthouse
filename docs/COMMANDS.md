@@ -161,10 +161,15 @@ one isolated path for each survey role:
 `accept-report` requires the exact assigned path and validates the role,
 schema, repository baseline, coverage, and supported patterns before it writes
 the checkpoint. Re-accepting an unchanged valid report is idempotent. Before
-synthesis, `resume` revalidates accepted report digests and returns the
-reusable roles and the roles that must run again.
+synthesis, `resume` revalidates each accepted report against the current Map
+and returns the reusable roles and the roles that must run again. A newer Map
+time, a new commit, or an edit does not make an accepted report stale by
+itself. A structural change that its role covers does, and so does a new scan
+configuration. Stop hooks reconcile after edits, so this keeps accepted
+surveys usable while work continues.
 
-`synthesize` refuses until each report is valid for the current Map. It records
+`synthesize` refuses until each report is valid for the current Map and the
+repository changes are reconciled. It records
 the synthesis inputs: the commit, the scan configuration digest, a digest of
 the Map units and capability boundaries, and each report digest. It copies the
 current Map to `.charthouse/drafts/E-0001/synthesis/map.json` as the starting

@@ -29,10 +29,9 @@ Status values:
 - [x] Stage synthesis output and human gate decisions in the Expedition
   transaction instead of applying them directly to canonical state. Record
   when synthesis starts and its inputs, and refuse stale surveys at synthesis.
-- [ ] Keep accepted survey reports valid before synthesis when a `map update`
-  changes only file contents. Today one edit and a Stop-hook `reconcile` give
-  the Map a new `generated_at`, and every accepted report fails with
-  `stale-map`. Compare structure, as the synthesis inputs already do.
+- [x] Keep accepted survey reports valid before synthesis when a `map update`
+  changes only file contents. Accepted reports are checked against the
+  current Map structure, not its generation time or commit.
 - [ ] Publish approved Expedition artifacts through a recoverable atomic
   publisher with a recorded completion receipt.
 

@@ -112,8 +112,9 @@ Navigators are output from a prior survey and cannot supply names or boundaries
 to a new survey.
 
 Each first survey has a durable record in `.charthouse/expeditions/`. Accepted
-report digests are checkpoints. A resumed session revalidates those digests
-and runs only missing or invalid roles again. Draft reports stay below the
+report digests are checkpoints. A resumed session revalidates those reports
+against the structure of the current Map and runs only missing or invalid
+roles again. A newer Map time or commit alone does not invalidate a report. Draft reports stay below the
 transaction's isolated `.charthouse/drafts/<id>/` root.
 
 ### Synthesis and gate

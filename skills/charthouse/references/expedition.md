@@ -87,8 +87,11 @@ charthouse expedition resume <expedition-id> --json
 ```
 
 Reuse the roles in `reusable_roles`. Run only the roles in `next_roles` again.
-Before synthesis starts, resume revalidates accepted report contents and their
-repository baseline. Do not trust a checkpoint whose report changed after
+Before synthesis starts, resume revalidates accepted report contents against
+the current Map. A newer Map time, a new commit, or an edit does not make an
+accepted report stale by itself. A change to the units, documents,
+dependencies, or duplicate groups that its role covers does, and so does a new
+scan configuration. Do not trust a checkpoint whose report changed after
 acceptance.
 
 ## Phase 3: synthesis
@@ -100,7 +103,9 @@ reports `ready-for-synthesis`:
 charthouse expedition synthesize <expedition-id> --json
 ```
 
-The command refuses a missing, invalid, stale, or changed report. It records
+The command refuses a missing, invalid, stale, or changed report. It also
+refuses while repository changes are not reconciled; run `charthouse reconcile`
+first. It records
 the synthesis inputs in the Expedition: the commit, the scan configuration, the
 Map units and capability boundaries, and each report digest. It copies the
 current Map to `draft_path`, which is

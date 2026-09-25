@@ -15,6 +15,10 @@
 - After synthesis starts, `expedition resume` checks the synthesis inputs
   instead of calling every survey stale after a `map update`, and publication
   refuses when those inputs changed.
+- Before synthesis, an edit and a Stop-hook `reconcile` no longer make every
+  accepted survey stale. An accepted report is checked against the structure
+  of the current Map, not its generation time or commit. A new report must
+  still match the current Map exactly.
 
 ## 0.1.0 (2026-09-25)
 

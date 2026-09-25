@@ -6,11 +6,13 @@ import {
 } from "./expedition-state.mjs";
 import { digestJson, exists, fingerprintFile, readJson, repoPath, writeJson } from "./fs.mjs";
 import { withProjectLock } from "./lock.mjs";
-import { applyMapUpdate, buildMapUpdate, loadState } from "./state.mjs";
+import { applyMapUpdate, buildMapUpdate, loadState, repositoryReconciliationStatus } from "./state.mjs";
 import { validateSurveyReport } from "./survey-report.mjs";
 
 const TERMINAL_STATUSES = ["published", "invalidated", "failed", "abandoned"];
 
+// A report whose file still matches its valid checkpoint is revalidated as
+// accepted; any other report must match the current Map exactly.
 function checkedReport(root, state, expedition, role) {
   const survey = expedition.surveys[role];
   const absolute = repoPath(root, survey.report_path);
@@ -36,8 +38,10 @@ function checkedReport(root, state, expedition, role) {
       digest: null
     };
   }
-  const validation = validateSurveyReport(root, state, { role, file: survey.report_path });
-  return { ...validation, digest: fingerprintFile(absolute) };
+  const digest = fingerprintFile(absolute);
+  const accepted = survey.status === "valid" && digest === survey.report_digest;
+  const validation = validateSurveyReport(root, state, { role, file: survey.report_path, accepted });
+  return { ...validation, digest };
 }
 
 function fileChanged(root, path, digest) {
@@ -290,6 +294,11 @@ export function synthesizeExpedition(root, id, { restart = false } = {}) {
       return { outcome: "Synthesis already started", started: false, expedition: summarize(root, expedition) };
     }
     const state = loadState(root);
+    // Accepted reports tolerate a pending edit, but synthesis starts from a current Map.
+    const reconciliation = repositoryReconciliationStatus(root, state.config);
+    if (reconciliation.required) {
+      throw new Error(`${id} cannot start synthesis while repository changes are not reconciled: ${reconciliation.reasons.join(", ")}. Run \`charthouse reconcile\` first.`);
+    }
     const { nextRoles } = surveyCheckpoints(root, expedition, state);
     if (nextRoles.length) {
       throw new Error(`${id} cannot start synthesis until each survey report is valid for the current Map. Not ready: ${nextRoles.join(", ")}. Run \`charthouse expedition resume ${id}\`.`);
