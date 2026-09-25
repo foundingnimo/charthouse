@@ -1,0 +1,26 @@
+[
+  {
+    "id": "orient-survey-windows",
+    "kind": "orientation",
+    "prompt": "Which source file implements Expedition survey windows, and which CLI command opens a window? Answer in two sentences with repository-relative paths. Do not change any file.",
+    "check": { "answer_includes": ["scripts/lib/expeditions.mjs", "start-survey"] }
+  },
+  {
+    "id": "impact-expedition-field",
+    "kind": "impact",
+    "prompt": "If the Expedition record gains a new required top-level field, which files must change so that record creation, validation, and the published JSON schema stay consistent? List repository-relative paths only. Do not change any file.",
+    "check": { "answer_includes": ["schemas/expedition.schema.json", "scripts/lib/expedition-state.mjs"] }
+  },
+  {
+    "id": "locate-shrink-guard",
+    "kind": "orientation",
+    "prompt": "Where does Charthouse refuse to publish a rescan that lost most files, and what threshold does it use? Name the function and file. Do not change any file.",
+    "check": { "answer_includes": ["assertComplete", "scripts/lib/expeditions.mjs", "half"] }
+  },
+  {
+    "id": "change-tool-gap-limit",
+    "kind": "change",
+    "prompt": "Add a `--limit <n>` option to `charthouse tool gap list` that returns at most n gaps in the existing order. Reject a limit that is not a positive integer. Add a test to test/tool-gaps.test.mjs. Keep every test in that file passing.",
+    "check": { "changed_paths": ["test/tool-gaps.test.mjs"], "command": "node --test test/tool-gaps.test.mjs" }
+  }
+]
