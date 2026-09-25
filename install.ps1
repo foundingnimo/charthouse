@@ -57,6 +57,21 @@ foreach ($Directory in @($CharthouseClaudeSkillsDir, $CharthouseSharedSkillsDir)
   }
 }
 
+# The runtime swap below deletes whatever is at the runtime path. Replace only
+# an installed runtime or an empty folder; any other folder can hold user files.
+function Get-CharthouseRuntimeState($Dir) {
+  try {
+    $State = & node (Join-Path $CharthouseSourceDir "scripts\runtime-state.mjs") $Dir 2>$null
+    if ($LASTEXITCODE -eq 0) { return "$State".Trim() }
+  } catch {}
+  return "other"
+}
+$RuntimeState = Get-CharthouseRuntimeState $CharthouseRuntimeDir
+$LegacyState = Get-CharthouseRuntimeState $CharthouseLegacyRuntimeDir
+if ($RuntimeState -notin @("missing", "empty", "runtime")) {
+  throw "$CharthouseRuntimeDir exists and is not a Charthouse runtime. Nothing changed. Set CHARTHOUSE_HOME to another folder or remove this one."
+}
+
 function Get-CharthouseVersion($Dir) {
   try { return (Get-Content (Join-Path $Dir "package.json") -Raw | ConvertFrom-Json).version } catch { return "unknown" }
 }
@@ -79,8 +94,8 @@ $SourceVersion = Get-CharthouseVersion $CharthouseSourceDir
 $SourceCommit = Get-CharthouseCommit $CharthouseSourceDir
 $SourceDirty = Get-CharthouseDirty $CharthouseSourceDir
 $SourceRevision = Format-CharthouseRevision $SourceCommit $SourceDirty
-$CurrentRuntime = if (Test-Path $CharthouseRuntimeDir) { $CharthouseRuntimeDir } elseif (Test-Path $CharthouseLegacyRuntimeDir) { $CharthouseLegacyRuntimeDir } else { $CharthouseRuntimeDir }
-$Installed = (Test-Path $CharthouseRuntimeDir) -or (Test-Path $CharthouseLegacyRuntimeDir) `
+$CurrentRuntime = if ($RuntimeState -eq "runtime") { $CharthouseRuntimeDir } elseif ($LegacyState -eq "runtime") { $CharthouseLegacyRuntimeDir } else { $CharthouseRuntimeDir }
+$Installed = ($RuntimeState -eq "runtime") -or ($LegacyState -eq "runtime") `
   -or (Test-Path (Join-Path $CharthouseClaudeSkillsDir "charthouse")) -or (Test-Path (Join-Path $CharthouseClaudeSkillsDir "charthouse-context")) `
   -or (Test-Path (Join-Path $CharthouseSharedSkillsDir "charthouse")) -or (Test-Path (Join-Path $CharthouseSharedSkillsDir "charthouse-context"))
 
@@ -135,8 +150,9 @@ try {
   if (Test-Path $BackupDir) { Move-Item -Path $BackupDir -Destination $CharthouseRuntimeDir }
   throw "Charthouse could not replace the runtime; the previous installation was restored. $($_.Exception.Message)"
 }
-if ($TargetHost -ne "shared" -and $CharthouseLegacyRuntimeDir -ne $CharthouseRuntimeDir -and (Test-Path $CharthouseLegacyRuntimeDir)) {
-  Remove-Item -Recurse -Force -Path $CharthouseLegacyRuntimeDir
+if ($TargetHost -ne "shared" -and $CharthouseLegacyRuntimeDir -ne $CharthouseRuntimeDir) {
+  if ($LegacyState -eq "runtime") { Remove-Item -Recurse -Force -Path $CharthouseLegacyRuntimeDir }
+  elseif ($LegacyState -eq "other") { Write-Host "Kept ${CharthouseLegacyRuntimeDir}: it is not a Charthouse runtime." }
 }
 
 function Install-CharthouseSkillPair($Destination) {

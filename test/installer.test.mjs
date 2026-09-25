@@ -240,6 +240,44 @@ test("install.sh refuses a broad runtime target before changing it", () => {
   }
 });
 
+test("install.sh replaces only a Charthouse runtime or an empty folder", () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "charthouse-foreign-home-"));
+  try {
+    const claude = join(sandbox, ".claude");
+    const envFor = (runtime) => ({ ...process.env, HOME: sandbox, CHARTHOUSE_HOME: runtime, CLAUDE_CONFIG_DIR: claude, AGENT_SKILLS_DIR: join(sandbox, ".agents/skills") });
+    const install = (runtime, ...args) => spawnSync("sh", [join(packageRoot, "install.sh"), "--no-hooks", ...args], { encoding: "utf8", env: envFor(runtime), input: "" });
+
+    const documents = join(sandbox, "Documents");
+    mkdirSync(documents);
+    writeFileSync(join(documents, "keep.txt"), "keep\n");
+    for (const args of [["--yes"], ["--update"]]) {
+      const result = install(documents, ...args);
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.match(result.stderr, /is not a Charthouse runtime/);
+    }
+    assert.deepEqual(readdirSync(documents), ["keep.txt"]);
+    assert.equal(existsSync(join(claude, "skills/charthouse")), false);
+
+    const empty = join(sandbox, "empty-runtime");
+    mkdirSync(empty);
+    const fresh = install(empty);
+    assert.equal(fresh.status, 0, fresh.stdout + fresh.stderr);
+    assert.match(fresh.stdout, /Installed Charthouse/);
+    assert.equal(existsSync(join(empty, "bin/charthouse")), true);
+
+    // The legacy runtime path is removed only when it holds a runtime.
+    const legacy = join(claude, "charthouse");
+    mkdirSync(legacy);
+    writeFileSync(join(legacy, "keep.txt"), "keep\n");
+    const update = install(empty, "--update");
+    assert.equal(update.status, 0, update.stdout + update.stderr);
+    assert.equal(readFileSync(join(legacy, "keep.txt"), "utf8"), "keep\n");
+    assert.match(update.stdout, /Kept .*charthouse: it is not a Charthouse runtime/);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("doctor accepts Claude hooks from a custom neutral runtime path", () => {
   const sandbox = mkdtempSync(join(tmpdir(), "charthouse-custom-runtime-"));
   try {

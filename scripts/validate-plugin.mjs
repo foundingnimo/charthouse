@@ -44,6 +44,7 @@ const required = [
   "scripts/lib/adapters.mjs",
   "scripts/install-standalone-hooks.mjs",
   "scripts/uninstall.mjs",
+  "scripts/runtime-state.mjs",
   "scripts/lib/claude-settings.mjs",
   "schemas/map.schema.json",
   "schemas/manifest.schema.json",

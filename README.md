@@ -233,6 +233,10 @@ runtime to `~/.charthouse`, preserves unrelated settings, and refreshes only
 Charthouse-owned hooks. Restart open agent sessions afterwards, because a running
 session can keep old skill text.
 
+The installer replaces only an installed Charthouse runtime or an empty folder.
+If `CHARTHOUSE_HOME` names a folder with other content, the installer stops and
+changes nothing.
+
 `charthouse --version` prints the version, source commit, and checkout an
 installation came from. A runtime copied from an uncommitted source checkout
 uses a `<commit>-dirty` revision label. Its `.install.json` stamp records

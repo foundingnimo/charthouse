@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, resolve, sep } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { isCharthouseHookCommand, readClaudeSettings, writeClaudeSettings } from "./lib/claude-settings.mjs";
+import { runtimeFolderState } from "./runtime-state.mjs";
 
 // Removes a sidecar installation: the runtime, both skill adapters, and the
 // Claude lifecycle hooks. It resolves paths the same way as install.sh and
 // install.ps1, checks every target first, and changes nothing if a check fails.
 // Repository state is never touched.
 
-const PACKAGE_NAME = "@foundingnimo/charthouse";
 const SKILLS = ["charthouse", "charthouse-context"];
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -31,20 +31,6 @@ function sameOrAncestor(parent, child) {
 
 function isRoot(path) {
   return path === parse(path).root;
-}
-
-// An installed runtime has the package name, the executable, and an install
-// stamp. A source checkout also has the package name, so Git metadata rules it out.
-function isCharthouseRuntime(directory) {
-  try {
-    const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
-    return manifest.name === PACKAGE_NAME
-      && existsSync(join(directory, "bin", "charthouse"))
-      && existsSync(join(directory, ".install.json"))
-      && !existsSync(join(directory, ".git"));
-  } catch {
-    return false;
-  }
 }
 
 // install.sh and install.ps1 stage a new runtime and keep the previous one
@@ -137,10 +123,12 @@ for (const directory of [claudeSkills, sharedSkills]) {
   }
 }
 
-const runtimes = [...new Set([runtime, legacyRuntime])].filter((path) => existsSync(path));
-for (const directory of runtimes) {
-  if (!isCharthouseRuntime(directory)) fail(`${directory} is not a Charthouse runtime. Nothing changed.`);
-}
+// An empty folder is left alone. Any other folder that is not a runtime stops the uninstall.
+const runtimes = [...new Set([runtime, legacyRuntime])].filter((path) => {
+  const state = runtimeFolderState(path);
+  if (state === "other") fail(`${path} is not a Charthouse runtime. Nothing changed.`);
+  return state === "runtime";
+});
 const leftovers = stagingLeftovers(runtime);
 const skills = [...new Set([claudeSkills, sharedSkills])]
   .flatMap((directory) => SKILLS.map((name) => join(directory, name)))

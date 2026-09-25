@@ -92,6 +92,20 @@ node -e '
   }
 ' "${CHARTHOUSE_RUNTIME_DIR}" "${HOME}" "${CHARTHOUSE_SOURCE_DIR}" "${CHARTHOUSE_CLAUDE_DIR}" "${CHARTHOUSE_SHARED_SKILLS_DIR}"
 
+# The runtime swap below deletes whatever is at the runtime path. Replace only
+# an installed runtime or an empty folder; any other folder can hold user files.
+charthouse_runtime_state() {
+  node "${CHARTHOUSE_SOURCE_DIR}/scripts/runtime-state.mjs" "$1" 2>/dev/null || echo other
+}
+CHARTHOUSE_RUNTIME_STATE=$(charthouse_runtime_state "${CHARTHOUSE_RUNTIME_DIR}")
+CHARTHOUSE_LEGACY_STATE=$(charthouse_runtime_state "${CHARTHOUSE_LEGACY_RUNTIME_DIR}")
+case "${CHARTHOUSE_RUNTIME_STATE}" in
+  missing|empty|runtime) ;;
+  *)
+    echo "${CHARTHOUSE_RUNTIME_DIR} exists and is not a Charthouse runtime. Nothing changed. Set CHARTHOUSE_HOME to another folder or remove this one." >&2
+    exit 1 ;;
+esac
+
 charthouse_version() {
   node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$1/package.json" 2>/dev/null || echo unknown
 }
@@ -122,12 +136,12 @@ CHARTHOUSE_SOURCE_COMMIT=$(charthouse_commit "${CHARTHOUSE_SOURCE_DIR}")
 CHARTHOUSE_SOURCE_DIRTY=$(charthouse_dirty "${CHARTHOUSE_SOURCE_DIR}")
 CHARTHOUSE_SOURCE_REVISION=$(charthouse_revision_label "${CHARTHOUSE_SOURCE_COMMIT}" "${CHARTHOUSE_SOURCE_DIRTY}")
 CHARTHOUSE_CURRENT_RUNTIME=${CHARTHOUSE_RUNTIME_DIR}
-if [ ! -e "${CHARTHOUSE_CURRENT_RUNTIME}" ] && [ -e "${CHARTHOUSE_LEGACY_RUNTIME_DIR}" ]; then
+if [ "${CHARTHOUSE_RUNTIME_STATE}" != runtime ] && [ "${CHARTHOUSE_LEGACY_STATE}" = runtime ]; then
   CHARTHOUSE_CURRENT_RUNTIME=${CHARTHOUSE_LEGACY_RUNTIME_DIR}
 fi
 
 charthouse_installed() {
-  [ -e "${CHARTHOUSE_RUNTIME_DIR}" ] || [ -e "${CHARTHOUSE_LEGACY_RUNTIME_DIR}" ] \
+  [ "${CHARTHOUSE_RUNTIME_STATE}" = runtime ] || [ "${CHARTHOUSE_LEGACY_STATE}" = runtime ] \
     || [ -e "${CHARTHOUSE_CLAUDE_SKILLS_DIR}/charthouse" ] || [ -e "${CHARTHOUSE_CLAUDE_SKILLS_DIR}/charthouse-context" ] \
     || [ -e "${CHARTHOUSE_SHARED_SKILLS_DIR}/charthouse" ] || [ -e "${CHARTHOUSE_SHARED_SKILLS_DIR}/charthouse-context" ]
 }
@@ -191,8 +205,11 @@ else
   echo "Charthouse could not replace the runtime; the previous installation was restored."
   exit 1
 fi
-if [ "${CHARTHOUSE_HOST}" != shared ] && [ "${CHARTHOUSE_LEGACY_RUNTIME_DIR}" != "${CHARTHOUSE_RUNTIME_DIR}" ] && [ -e "${CHARTHOUSE_LEGACY_RUNTIME_DIR}" ]; then
-  rm -rf "${CHARTHOUSE_LEGACY_RUNTIME_DIR}"
+if [ "${CHARTHOUSE_HOST}" != shared ] && [ "${CHARTHOUSE_LEGACY_RUNTIME_DIR}" != "${CHARTHOUSE_RUNTIME_DIR}" ]; then
+  case "${CHARTHOUSE_LEGACY_STATE}" in
+    runtime) rm -rf "${CHARTHOUSE_LEGACY_RUNTIME_DIR}" ;;
+    other) echo "Kept ${CHARTHOUSE_LEGACY_RUNTIME_DIR}: it is not a Charthouse runtime." ;;
+  esac
 fi
 
 charthouse_install_skill_pair() {
