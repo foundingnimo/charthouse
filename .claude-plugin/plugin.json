@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "foundingnimo",
   "displayName": "Charthouse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Claude Code adapter for Charthouse's ambient repository maps, specialist Navigators, and verified rationale.",
   "author": {
     "name": "foundingnimo"

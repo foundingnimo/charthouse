@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-25)
+
 - `tool gap record` rejects a Voyage or Expedition id that does not exist.
 - `./install.sh --uninstall` and `./install.ps1 -Uninstall` remove a sidecar
   installation. Repositories keep their Charthouse state.
