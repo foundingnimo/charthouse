@@ -18,9 +18,16 @@ Check:
 - Instruction Contract registration, scope, size, and fingerprints
 - Generated rule sources
 - Generated Navigator sources
+- Navigator coverage after the first publication: maintained files with no
+  Navigator, overlapping primary paths, unapproved boundaries, placeholder
+  purposes, and weak evidence
 - Map schema version
 
 The check is read-only.
+
+To close a coverage gap or an overlap after publication, change the boundary
+in `.charthouse/map.json`, get human approval, and run `charthouse navigator
+regenerate all`. The check does not move a boundary by itself.
 
 Run `charthouse map update` after a scan-policy change. The update rebaselines
 generated Navigator views. It does not silently reapprove active human

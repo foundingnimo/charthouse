@@ -45,6 +45,8 @@ Charthouse provides:
   interruption-safe resume
 - A staged Map gate: the draft Map and each boundary approval stay in the
   Expedition, and Navigators stay drafts until publication applies them
+- Navigator coverage checks for unowned files, overlapping boundaries, and
+  weak boundary descriptions
 - Survey windows that reject a report when its mapper changed product files
 - Recoverable publication with a completion receipt and a guard against
   partial rescans

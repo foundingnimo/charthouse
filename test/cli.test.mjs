@@ -684,6 +684,76 @@ test("a changed survey report discards a started synthesis", () => {
   assert.equal(record.events.at(-1).type, "synthesis-discarded");
 });
 
+test("publication and host folders leave document fingerprints current", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveAllCapabilities();
+  const suspect = () => JSON.parse(run("check", "--root", sandbox, "--json").stdout).findings.filter((item) => item.code === "document-suspect");
+  // The first publication creates .agents/ and .claude/ after it plans the fingerprints.
+  assert.deepEqual(suspect(), []);
+  mkdirSync(join(sandbox, ".claude"), { recursive: true });
+  writeFileSync(join(sandbox, ".claude/settings.json"), "{}\n");
+  assert.deepEqual(suspect(), []);
+});
+
+function coverageFindings() {
+  const report = JSON.parse(run("check", "--root", sandbox, "--json").stdout);
+  return report.findings.filter((item) => item.code.startsWith("navigator-") || item.code === "capability-unapproved");
+}
+
+test("check finds Navigator coverage gaps, overlaps, and weak boundaries", () => {
+  mkdirSync(join(sandbox, "scripts"), { recursive: true });
+  writeFileSync(join(sandbox, "scripts/build.js"), "export const build = true;\n");
+  writeFileSync(join(sandbox, "scripts/release.js"), "export const release = true;\n");
+  assert.equal(git("add", "-A").status, 0);
+  assert.equal(git("-c", "user.name=Charthouse Test", "-c", "user.email=charthouse@test.local", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "scripts").status, 0);
+  assert.equal(git("branch", "-f", "canonical", "HEAD").status, 0);
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveExpeditionMap(sandbox, run, (map) => {
+    const web = map.capabilities.find((item) => item.id === "cap-apps-web");
+    web.primary_paths = ["apps/web/**", "packages/auth/src/**"];
+    const auth = map.capabilities.find((item) => item.id === "cap-packages-auth");
+    auth.purpose = "Issue and verify session tokens for every client.";
+    auth.confidence = 0.3;
+  });
+  assert.equal(run("navigator", "regenerate", "all", "--root", sandbox).status, 0);
+
+  const findings = coverageFindings();
+  const byCode = (code) => findings.filter((item) => item.code === code);
+  const gap = byCode("navigator-coverage-gap");
+  assert.equal(gap.length, 1);
+  assert.equal(gap[0].level, "information");
+  assert.match(gap[0].message, /2 maintained files have no Navigator: scripts\/ \(2\)/);
+  const overlap = byCode("navigator-overlap");
+  assert.equal(overlap.length, 1);
+  assert.equal(overlap[0].level, "warning");
+  assert.match(overlap[0].message, /cap-apps-web and cap-packages-auth both claim 1 maintained file as primary, for example packages\/auth\/src\/token\.ts/);
+  assert.deepEqual(byCode("navigator-purpose-broad").map((item) => item.message.split(" ")[0]), ["cap-apps-web"]);
+  assert.equal(byCode("navigator-purpose-broad")[0].level, "information");
+  assert.deepEqual(byCode("navigator-evidence-weak").map((item) => item.message.split(" ")[0]), ["cap-packages-auth"]);
+
+  const next = run("next", "--root", sandbox).stdout;
+  assert.match(next, /Review Navigator coverage: 2 maintained files have no Navigator, 1 overlap/);
+
+  // A boundary that stays unapproved after publication leaves its paths without a Navigator.
+  mkdirSync(join(sandbox, "packages/new"), { recursive: true });
+  writeFileSync(join(sandbox, "packages/new/package.json"), `${JSON.stringify({ name: "new", version: "1.0.0" })}\n`);
+  writeFileSync(join(sandbox, "packages/new/index.js"), "export const added = true;\n");
+  assert.equal(run("map", "update", "--root", sandbox).status, 0);
+  const unapproved = coverageFindings().filter((item) => item.code === "capability-unapproved");
+  assert.equal(unapproved.length, 1);
+  assert.equal(unapproved[0].level, "warning");
+  assert.match(unapproved[0].message, /cap-packages-new/);
+});
+
+test("a fully covered Map has no coverage warnings", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  // Before publication, no Navigator exists, so coverage is not measured.
+  assert.deepEqual(coverageFindings(), []);
+  approveAllCapabilities();
+  const warnings = coverageFindings().filter((item) => item.level !== "information");
+  assert.deepEqual(warnings, []);
+});
+
 test("ambiguous vendor and build directories are scanned by default", () => {
   mkdirSync(join(sandbox, "apps/web/src/vendor"), { recursive: true });
   mkdirSync(join(sandbox, "bin/build"), { recursive: true });
@@ -1621,9 +1691,13 @@ test("Map update preserves semantic capability decisions", () => {
   const nextManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   assert.equal(nextManifest.documents["doc-design"].path, "README.md");
 
-  const check = run("check", "--root", sandbox);
+  const check = run("check", "--root", sandbox, "--json");
   assert.equal(check.status, 0, check.stderr);
-  assert.match(check.stdout, /Bearing check: PASS/);
+  const report = JSON.parse(check.stdout);
+  assert.equal(report.errors, 0);
+  // Only the two boundaries that stay unapproved need a decision.
+  const warnings = [...new Set(report.findings.filter((item) => item.level === "warning").map((item) => item.code))].sort();
+  assert.deepEqual(warnings, ["capability-unapproved"]);
 });
 
 test("Map update never deletes a product file named by untrusted state", () => {

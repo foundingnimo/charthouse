@@ -8,6 +8,7 @@ import { loadState, repositoryMigrationStatus, repositoryReconciliationStatus } 
 import { summarizeToolGaps } from "./tool-gaps.mjs";
 import { summarizeVoyages } from "./voyages.mjs";
 import { canonicalRefStatus } from "./freshness.mjs";
+import { navigatorCoverage } from "./coverage.mjs";
 import { listExpeditions } from "./expedition-state.mjs";
 import { expeditionStatus } from "./expeditions.mjs";
 
@@ -19,6 +20,39 @@ const TEXT_EXTENSIONS = new Set([
 
 function finding(level, code, message, path = null) {
   return { level, code, message, path };
+}
+
+function plural(count, singular, pluralForm = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function coverageFindings(coverage) {
+  if (!coverage) return [];
+  const findings = [];
+  if (coverage.uncovered.length) {
+    const areas = coverage.uncovered_areas.slice(0, 5).map((item) => `${item.path} (${item.files})`).join(", ");
+    const more = coverage.uncovered_areas.length > 5 ? `, and ${plural(coverage.uncovered_areas.length - 5, "more area")}` : "";
+    const count = coverage.uncovered.length;
+    // A person can leave shared tooling without an owner on purpose, and nothing
+    // records that decision yet, so a gap informs instead of blocking the Bearing.
+    findings.push(finding("information", "navigator-coverage-gap", `${count} maintained file${count === 1 ? " has" : "s have"} no Navigator: ${areas}${more}. Add them to an approved boundary, or leave them unowned on purpose.`, coverage.uncovered_areas[0].path));
+  }
+  for (const overlap of coverage.overlaps.slice(0, 5)) {
+    const [left, right] = overlap.capabilities;
+    findings.push(finding("warning", "navigator-overlap", `${left} and ${right} both claim ${plural(overlap.files, "maintained file")} as primary, for example ${overlap.example}. Give each file one responsible Navigator.`, overlap.example));
+  }
+  if (coverage.overlaps.length > 5) {
+    findings.push(finding("warning", "navigator-overlap", `${plural(coverage.overlaps.length - 5, "more Navigator pair")} also overlap.`));
+  }
+  for (const id of coverage.broad) {
+    findings.push(finding("information", "navigator-purpose-broad", `${id} has a placeholder or very short purpose. Describe the capability that it owns.`));
+  }
+  for (const item of coverage.weak) {
+    findings.push(finding("information", "navigator-evidence-weak", item.missing_evidence.length
+      ? `${item.id} cites evidence that is no longer in the Map: ${item.missing_evidence.join(", ")}.`
+      : `${item.id} has no evidence or a confidence below 0.5.`));
+  }
+  return findings;
 }
 
 function driftLevel(criticality) {
@@ -149,11 +183,16 @@ export function checkRepository(root) {
       group.paths[0]
     ));
   }
+  const coverage = navigatorCoverage(state.map);
   for (const capability of state.map.capabilities || []) {
     if (capability.approved !== true) {
-      findings.push(finding("information", "capability-preliminary", `${capability.id} needs human boundary review.`));
+      // After publication, an unapproved boundary leaves its paths without a Navigator.
+      findings.push(coverage
+        ? finding("warning", "capability-unapproved", `${capability.id} is not approved, so its paths have no Navigator. Review the boundary and approve it.`)
+        : finding("information", "capability-preliminary", `${capability.id} needs human boundary review.`));
     }
   }
+  findings.push(...coverageFindings(coverage));
 
   const drift = documentDrift(root, state);
   for (const [id, document] of Object.entries(state.manifest.documents || {})) {

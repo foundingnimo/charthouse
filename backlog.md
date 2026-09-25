@@ -54,10 +54,11 @@ state or performing overlapping work by accident.
 
 ### Navigator coverage checks
 
-- [ ] Find maintained paths with no Navigator.
-- [ ] Find excessive or contradictory Navigator overlap.
-- [ ] Flag broad descriptions, weak evidence, and unapproved boundaries.
-- [ ] Surface these findings through `charthouse check` and `charthouse next`.
+- [x] Find maintained paths with no Navigator.
+- [x] Find excessive or contradictory Navigator overlap. Two approved
+  boundaries that claim the same maintained file as primary are reported.
+- [x] Flag broad descriptions, weak evidence, and unapproved boundaries.
+- [x] Surface these findings through `charthouse check` and `charthouse next`.
 
 ## Next
 

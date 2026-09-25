@@ -229,6 +229,24 @@ predicted paths.
 health. An approved Map with unresolved errors or warnings is
 `published_with_findings`; its Bearing can still be blocked.
 
+After the first publication, `check` measures Navigator coverage over
+maintained files, which are source and test files that are not documents:
+
+- `navigator-coverage-gap` (information): maintained files that no approved
+  boundary claims as primary, grouped by area. Files of stub and omitted
+  units do not count. A gap can be deliberate, so it does not block the
+  Bearing.
+- `navigator-overlap` (warning): two approved boundaries claim the same
+  maintained file as primary.
+- `capability-unapproved` (warning): a boundary that is still unapproved, so
+  its paths have no Navigator. Before the first publication, the same state is
+  the `capability-preliminary` information finding.
+- `navigator-purpose-broad` (information): a placeholder or very short purpose.
+- `navigator-evidence-weak` (information): no evidence, a confidence below
+  0.5, or evidence that is no longer in the Map.
+
+`next` summarizes these findings in one suggestion that points to `check`.
+
 Starting a Voyage creates a durable `planning` record in `.charthouse/voyages/`
 and returns its Chronicle plan path, predicted paths, and Navigators. It does
 not reserve code paths. After the user approves the plan, `activate` claims the

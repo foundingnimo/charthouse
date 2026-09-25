@@ -1,4 +1,5 @@
 import { checkRepository } from "./check.mjs";
+import { navigatorCoverage, summarizeCoverage } from "./coverage.mjs";
 import { expeditionIsOpen, listExpeditions } from "./expedition-state.mjs";
 
 const SEVERITY_ORDER = { major: 0, minor: 1, information: 2 };
@@ -30,6 +31,8 @@ export function nextSteps(root) {
   const unresolved = state.map.unresolved || [];
   const structural = anomalies.filter((item) => /duplicate|misplaced|drift|dead-code|copy/.test(item.kind || ""));
   const toolGapCandidates = state.tool_gaps.gaps.filter((gap) => gap.status === "candidate");
+  const coverage = navigatorCoverage(state.map);
+  const coverageSummary = summarizeCoverage(coverage);
 
   const suggestions = [];
   const suggest = (priority, action, command, reason) => suggestions.push({ priority, action, command, reason });
@@ -73,6 +76,9 @@ export function nextSteps(root) {
   if (unresolved.length) {
     suggest("later", `Decide ${unresolved.length} unresolved ownership item${unresolved.length === 1 ? "" : "s"}.`, "charthouse map show", "Unresolved scope has no Navigator.");
   }
+  if (coverageSummary) {
+    suggest("soon", `Review Navigator coverage: ${coverageSummary}.`, "charthouse check", "Each maintained file needs one responsible Navigator with a clear purpose and evidence.");
+  }
   if (toolGapCandidates.length) {
     suggest("later", `Review ${toolGapCandidates.length} recurring Tool Gap candidate${toolGapCandidates.length === 1 ? "" : "s"}.`, "charthouse tool gap list --status candidate", "Repeated fallbacks show where a registered Toolbox operation can save work.");
   }
@@ -91,6 +97,7 @@ export function nextSteps(root) {
       preliminary_capabilities: preliminary.map((item) => item.id),
       stale_documents: stale.map((document) => ({ path: document.path, status: document.status, criticality: document.criticality })),
       tool_gap_candidates: toolGapCandidates.map((gap) => ({ id: gap.id, key: gap.key, need: gap.need, occurrences: gap.occurrences, voyages: gap.voyages.length })),
+      navigator_coverage: coverage,
       knowledge: { total: knowledge.length, suspect: knowledge.filter((item) => item.status === "suspect").length }
     },
     suggestions
@@ -102,13 +109,15 @@ export function renderNext(result) {
   const bearing = result.bearing.ok ? (result.bearing.current ? "PASS" : "REVIEW") : "FAIL";
   lines.push(`Bearing: ${bearing} (${result.bearing.errors} error(s), ${result.bearing.warnings} warning(s)). Charter: ${result.charter}.`, "");
   lines.push("Findings", "");
-  const { anomalies, unresolved, preliminary_capabilities: preliminary, stale_documents: stale, tool_gap_candidates: toolGaps } = result.findings;
-  if (!anomalies.length && !unresolved.length && !preliminary.length && !stale.length && !toolGaps.length) lines.push("- None recorded.");
+  const { anomalies, unresolved, preliminary_capabilities: preliminary, stale_documents: stale, tool_gap_candidates: toolGaps, navigator_coverage: coverage } = result.findings;
+  const coverageSummary = summarizeCoverage(coverage);
+  if (!anomalies.length && !unresolved.length && !preliminary.length && !stale.length && !toolGaps.length && !coverageSummary) lines.push("- None recorded.");
   for (const item of anomalies) lines.push(`- [${item.severity}] ${item.id ? `${item.id}: ` : ""}${item.detail}${item.paths.length ? ` (${item.paths.slice(0, 3).join(", ")}${item.paths.length > 3 ? ", …" : ""})` : ""}`);
   for (const item of unresolved) lines.push(`- [unresolved] ${item.id ? `${item.id}: ` : ""}${item.detail || item.kind}${item.paths.length ? ` (${item.paths.slice(0, 3).join(", ")})` : ""}`);
   for (const document of stale) lines.push(`- [${document.status}, ${document.criticality}] ${document.path}`);
   for (const gap of toolGaps) lines.push(`- [tool candidate] ${gap.id}: ${gap.need} (${gap.occurrences} occurrence(s), ${gap.voyages} Voyage(s))`);
   if (preliminary.length) lines.push(`- [preliminary] ${preliminary.length} capability boundar${preliminary.length === 1 ? "y" : "ies"} without human approval: ${preliminary.join(", ")}`);
+  if (coverageSummary) lines.push(`- [coverage] ${coverageSummary}`);
   lines.push("", "Suggested next steps", "");
   result.suggestions.forEach((item, index) => {
     lines.push(`${index + 1}. [${item.priority}] ${item.action}`, `   ${item.command}`, `   ${item.reason}`);

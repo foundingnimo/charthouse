@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { HARD_EXCLUDES } from "./constants.mjs";
+import { HARD_EXCLUDES, PATHS } from "./constants.mjs";
 
 export function exists(path) {
   return existsSync(path);
@@ -214,6 +214,16 @@ function fingerprintGlob(root, pattern, excludes, options) {
   return `sha256:${hash.digest("hex")}`;
 }
 
+// Charthouse writes these folders itself, and hosts keep settings in them. They
+// are never evidence, so their appearance must not change a watched fingerprint.
+// Publication creates .agents/ and .claude/ after it plans the fingerprints.
+const UNWATCHED_BOUNDARIES = [".git", PATHS.state, ".claude", ".agents", PATHS.docs];
+
+function watchedBoundary(path) {
+  const value = String(path || "").replace(/\/$/, "");
+  return !UNWATCHED_BOUNDARIES.some((root) => value === root || value.startsWith(`${root}/`));
+}
+
 export function fingerprintPath(root, rel, excludes = [], options = {}) {
   rel = toPosix(rel);
   if (rel === "**") rel = ".";
@@ -257,7 +267,7 @@ export function fingerprintPath(root, rel, excludes = [], options = {}) {
     ...options,
     pathPrefix,
     onExcluded(event) {
-      recordBoundary({ ...event, treatment: "excluded" });
+      if (watchedBoundary(event.path)) recordBoundary({ ...event, treatment: "excluded" });
       options.onExcluded?.(event);
     },
     onRejected(event) {

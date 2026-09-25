@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `check` measures Navigator coverage after the first publication.
+  Overlapping primary paths and unapproved boundaries are warnings. Maintained
+  files with no Navigator, placeholder purposes, and weak evidence are
+  information. `next` summarizes them in one suggestion.
+- Fixed in this release: every Expedition publication since 0.3.0 left
+  `docs/charthouse/map.md` suspect, because directory fingerprints counted the
+  `.agents/` and `.claude/` folders that publication creates. Fingerprints now
+  ignore Charthouse and host folders. Stored root fingerprints change once, so
+  a document that watches the repository root can show as suspect one time
+  after the upgrade.
+
 - `init` moves generated Navigator views from an earlier Charthouse state to
   the Expedition's `retired-views/` draft folder, so that hosts do not discover
   stale Navigators and new surveys do not reuse their names.
