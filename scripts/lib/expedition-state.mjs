@@ -2,7 +2,11 @@ import { readdirSync } from "node:fs";
 import { EXPEDITION_SCHEMA_VERSION, PATHS, SURVEY_REPORT_ROLES } from "./constants.mjs";
 import { ensureDir, exists, readJson, repoPath, writeJson, writeText } from "./fs.mjs";
 
-const OPEN_STATUSES = new Set(["surveying", "ready-for-synthesis", "awaiting-approval", "approved", "publishing"]);
+const OPEN_STATUSES = new Set(["surveying", "ready-for-synthesis", "synthesizing", "awaiting-approval", "approved", "publishing"]);
+// A synthesis record exists from `expedition synthesize` until publication.
+// Before a draft Map is staged the status is synthesizing; after, it waits for approval.
+const SYNTHESIS_STATUSES = new Set(["synthesizing", "awaiting-approval", "approved"]);
+const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const EXPEDITION_ID = /^E-(\d{4,})$/;
 
 function fail(message) {
@@ -33,8 +37,47 @@ function requireShape(value, path, fields, optional = []) {
   }
 }
 
+function validateSynthesis(value, expedition) {
+  const synthesis = value ?? null;
+  if (SYNTHESIS_STATUSES.has(expedition.status) && !synthesis) fail(`a ${expedition.status} Expedition needs a synthesis record.`);
+  if (["surveying", "ready-for-synthesis"].includes(expedition.status) && synthesis) fail(`a ${expedition.status} Expedition cannot have a synthesis record.`);
+  if (!synthesis) return;
+  requireShape(synthesis, "synthesis", ["started_at", "draft_path", "inputs", "staged", "approvals", "approved_digest"]);
+  if (!validTime(synthesis.started_at)) fail("synthesis.started_at must be a timestamp.");
+  if (synthesis.draft_path !== `${expedition.draft_root}/synthesis/map.json`) fail("synthesis.draft_path is not isolated.");
+  requireShape(synthesis.inputs, "synthesis.inputs", ["commit", "config_digest", "map_digest", "reports"]);
+  if (!nullableString(synthesis.inputs.commit)) fail("synthesis.inputs.commit must be a string or null.");
+  if (!DIGEST.test(synthesis.inputs.config_digest || "")) fail("synthesis.inputs.config_digest is invalid.");
+  if (!DIGEST.test(synthesis.inputs.map_digest || "")) fail("synthesis.inputs.map_digest is invalid.");
+  requireShape(synthesis.inputs.reports, "synthesis.inputs.reports", SURVEY_REPORT_ROLES);
+  for (const role of SURVEY_REPORT_ROLES) {
+    if (!DIGEST.test(synthesis.inputs.reports[role] || "")) fail(`synthesis.inputs.reports.${role} is invalid.`);
+  }
+  if (expedition.status === "synthesizing" && synthesis.staged !== null) fail("a synthesizing Expedition has no staged draft yet.");
+  if (["awaiting-approval", "approved"].includes(expedition.status) && synthesis.staged === null) fail(`a ${expedition.status} Expedition needs a staged draft.`);
+  if (synthesis.staged !== null) {
+    requireShape(synthesis.staged, "synthesis.staged", ["at", "digest", "capabilities"]);
+    if (!validTime(synthesis.staged.at)) fail("synthesis.staged.at must be a timestamp.");
+    if (!DIGEST.test(synthesis.staged.digest || "")) fail("synthesis.staged.digest is invalid.");
+    if (!Number.isInteger(synthesis.staged.capabilities) || synthesis.staged.capabilities < 1) fail("synthesis.staged.capabilities must be a positive integer.");
+  }
+  if (!Array.isArray(synthesis.approvals)) fail("synthesis.approvals must be an array.");
+  const approved = new Set();
+  synthesis.approvals.forEach((approval, index) => {
+    const path = `synthesis.approvals[${index}]`;
+    requireShape(approval, path, ["capability", "digest", "at"]);
+    if (typeof approval.capability !== "string" || !approval.capability) fail(`${path}.capability is required.`);
+    if (approved.has(approval.capability)) fail(`${path}.capability is a duplicate.`);
+    approved.add(approval.capability);
+    if (!DIGEST.test(approval.digest || "")) fail(`${path}.digest is invalid.`);
+    if (!validTime(approval.at)) fail(`${path}.at must be a timestamp.`);
+  });
+  if (synthesis.approved_digest !== null && !DIGEST.test(synthesis.approved_digest || "")) fail("synthesis.approved_digest is invalid.");
+  if (expedition.status === "approved" && synthesis.approved_digest !== synthesis.staged?.digest) fail("an approved Expedition must approve its staged draft.");
+}
+
 export function validateExpedition(value) {
-  requireShape(value, "record", ["schema_version", "id", "status", "created_at", "updated_at", "baseline", "draft_root", "surveys", "events"]);
+  requireShape(value, "record", ["schema_version", "id", "status", "created_at", "updated_at", "baseline", "draft_root", "surveys", "events"], ["synthesis"]);
   if (value.schema_version !== EXPEDITION_SCHEMA_VERSION) fail(`schema_version must be ${EXPEDITION_SCHEMA_VERSION}.`);
   if (!EXPEDITION_ID.test(value.id || "")) fail("id must use E-0001 form.");
   if (![...OPEN_STATUSES, "published", "invalidated", "failed", "abandoned"].includes(value.status)) fail(`unsupported status ${value.status || "missing"}.`);
@@ -67,6 +110,7 @@ export function validateExpedition(value) {
       fail(`surveys.${role} needs a digest and validation time.`);
     }
   }
+  validateSynthesis(value.synthesis, value);
   if (!Array.isArray(value.events)) fail("events must be an array.");
   value.events.forEach((event, index) => {
     const path = `events[${index}]`;
@@ -151,6 +195,7 @@ export function createExpeditionCheckpoint(root, { map, fingerprints, canonical 
     },
     draft_root: draftRoot,
     surveys,
+    synthesis: null,
     events: [{ at: now, type: "started", detail: "The deterministic Expedition scaffold is ready." }]
   };
   validateExpedition(expedition);
@@ -188,6 +233,71 @@ export function recordSurveyValidation(root, expedition, role, validation, repor
     role,
     detail: validation.valid ? "The report passed deterministic validation." : `${validation.errors?.length || 0} validation error(s).`
   });
+  // A synthesis used the earlier reports, so a changed report discards it.
+  if (next.synthesis) {
+    next.synthesis = null;
+    next.events.push({ at: now, type: "synthesis-discarded", role, detail: "A survey report changed after synthesis started." });
+  }
+  return writeExpedition(root, next);
+}
+
+function allApproved(approvals, capabilities) {
+  const approved = new Set(approvals.map((approval) => approval.capability));
+  return capabilities.every((capability) => approved.has(capability.id));
+}
+
+// Approvals stay in the Expedition until publication. Each boundary approval
+// covers one capability definition, and approved_digest records the staged
+// draft that a person approved as a whole. A restart keeps each boundary
+// approval; staging keeps only those whose capability is unchanged. Any change
+// to the staged draft needs a new approval, even when every boundary held.
+export function recordSynthesisStarted(root, expedition, inputs) {
+  const now = new Date().toISOString();
+  const next = structuredClone(expedition);
+  const restart = Boolean(expedition.synthesis);
+  next.synthesis = {
+    started_at: now,
+    draft_path: `${expedition.draft_root}/synthesis/map.json`,
+    inputs,
+    staged: null,
+    approvals: expedition.synthesis?.approvals || [],
+    approved_digest: null
+  };
+  next.status = "synthesizing";
+  next.updated_at = now;
+  next.events.push({ at: now, type: restart ? "synthesis-restarted" : "synthesis-started", detail: "The synthesis inputs are recorded." });
+  return writeExpedition(root, next);
+}
+
+// capabilities: [{ id, digest }] from the staged draft Map.
+export function recordSynthesisStaged(root, expedition, { digest, capabilities }) {
+  const now = new Date().toISOString();
+  const next = structuredClone(expedition);
+  const current = new Map(capabilities.map((capability) => [capability.id, capability.digest]));
+  const kept = expedition.synthesis.approvals.filter((approval) => current.get(approval.capability) === approval.digest);
+  const dropped = expedition.synthesis.approvals.filter((approval) => !kept.includes(approval)).map((approval) => approval.capability);
+  next.synthesis.staged = { at: now, digest, capabilities: capabilities.length };
+  next.synthesis.approvals = kept;
+  if (next.synthesis.approved_digest !== digest) next.synthesis.approved_digest = null;
+  next.status = allApproved(kept, capabilities) && next.synthesis.approved_digest === digest ? "approved" : "awaiting-approval";
+  next.updated_at = now;
+  next.events.push({ at: now, type: "draft-staged", detail: `${capabilities.length} capability boundaries staged for approval.` });
+  if (dropped.length) next.events.push({ at: now, type: "approvals-dropped", detail: `Changed or removed: ${dropped.join(", ")}.` });
+  return { expedition: writeExpedition(root, next), dropped };
+}
+
+// approvals: [{ capability, digest }]; capabilities: [{ id }] from the staged draft Map.
+export function recordApprovals(root, expedition, approvals, capabilities) {
+  const now = new Date().toISOString();
+  const next = structuredClone(expedition);
+  const byCapability = new Map(next.synthesis.approvals.map((approval) => [approval.capability, approval]));
+  for (const approval of approvals) byCapability.set(approval.capability, { ...approval, at: now });
+  next.synthesis.approvals = [...byCapability.values()].sort((left, right) => left.capability.localeCompare(right.capability));
+  const complete = allApproved(next.synthesis.approvals, capabilities);
+  next.synthesis.approved_digest = complete ? next.synthesis.staged.digest : null;
+  next.status = complete ? "approved" : "awaiting-approval";
+  next.updated_at = now;
+  next.events.push({ at: now, type: "capabilities-approved", detail: approvals.map((approval) => approval.capability).join(", ") });
   return writeExpedition(root, next);
 }
 

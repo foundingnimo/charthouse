@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { acceptAllSurveys } from "./helpers/surveys.mjs";
+import { approveExpeditionMap } from "./helpers/surveys.mjs";
 import { normalizeVoyagePath, validateVoyage, voyagePathsOverlap } from "../scripts/lib/voyages.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -47,15 +47,7 @@ function configureCanonical(ref) {
 }
 
 function approveAllCapabilities() {
-  acceptAllSurveys(sandbox, run);
-  const path = join(sandbox, ".charthouse/map.json");
-  const map = JSON.parse(readFileSync(path, "utf8"));
-  map.capabilities = map.capabilities.map((capability) => ({
-    ...capability,
-    approved: true,
-    provenance: "human-approved"
-  }));
-  writeFileSync(path, `${JSON.stringify(map, null, 2)}\n`);
+  approveExpeditionMap(sandbox, run);
   ok("navigator", "regenerate", "all", "--root", sandbox);
 }
 

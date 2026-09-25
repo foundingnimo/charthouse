@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { acceptAllSurveys } from "./helpers/surveys.mjs";
+import { approveExpeditionMap } from "./helpers/surveys.mjs";
 import { fingerprintPath, watchPathspec } from "../scripts/lib/fs.mjs";
 import { verificationStamp } from "../scripts/lib/state.mjs";
 import { gitDiffSince } from "../scripts/lib/git.mjs";
@@ -43,14 +43,7 @@ function initializeCanonical(ref = "canonical") {
 }
 
 function approveAllCapabilities() {
-  acceptAllSurveys(sandbox, run);
-  const map = readState("map.json");
-  map.capabilities = map.capabilities.map((capability) => ({
-    ...capability,
-    approved: true,
-    provenance: "human-approved"
-  }));
-  writeState("map.json", map);
+  approveExpeditionMap(sandbox, run);
   ok("navigator", "regenerate", "all", "--root", sandbox);
 }
 

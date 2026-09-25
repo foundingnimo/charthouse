@@ -87,34 +87,65 @@ charthouse expedition resume <expedition-id> --json
 ```
 
 Reuse the roles in `reusable_roles`. Run only the roles in `next_roles` again.
-Resume revalidates accepted report contents and their repository baseline. Do
-not trust a checkpoint whose report changed after acceptance.
+Before synthesis starts, resume revalidates accepted report contents and their
+repository baseline. Do not trust a checkpoint whose report changed after
+acceptance.
 
 ## Phase 3: synthesis
+
+Start synthesis when `charthouse expedition status <expedition-id> --json`
+reports `ready-for-synthesis`:
+
+```text
+charthouse expedition synthesize <expedition-id> --json
+```
+
+The command refuses a missing, invalid, stale, or changed report. It records
+the synthesis inputs in the Expedition: the commit, the scan configuration, the
+Map units and capability boundaries, and each report digest. It copies the
+current Map to `draft_path`, which is
+`.charthouse/drafts/<expedition-id>/synthesis/map.json`.
 
 Launch `charthouse-map-synthesizer` with:
 
 - Deterministic inventory
-- All survey results
+- The four accepted reports
 - Existing Charter, when present
 - Dirty-tree warning, when present
+- The draft directory `.charthouse/drafts/<expedition-id>/synthesis/`
 
-Run `charthouse expedition status <expedition-id> --json` immediately before
-synthesis. Continue only when its status is `ready-for-synthesis`. Supply the
-four accepted reports. The synthesizer must refuse a missing, invalid, stale,
-or role-mismatched report. It must not delegate.
+The synthesizer must not delegate. It edits the draft Map at `draft_path`. It
+keeps the repository units unchanged, and it does not approve boundaries. It
+writes these drafts in the same directory:
 
-The synthesizer creates draft forms of:
-
-- `.charthouse/map.json`
-- `.charthouse/manifest.json`
-- `docs/charthouse/map.md`
-- `docs/charthouse/documentation-map.md`
-- `docs/charthouse/anomalies.md`
+- `documentation-map.md`
+- `anomalies.md`
 - Proposed Navigator definitions
 - Optional Refit findings
 
 The current-state Map and intended-state Charter must remain separate.
+
+Stage the draft Map:
+
+```text
+charthouse expedition stage <expedition-id> --json
+```
+
+Staging checks the draft Map and records its digest. The units must match the
+deterministic Map. Each capability needs an id, a name, a purpose, primary
+paths, a confidence from 0 to 1, and evidence. Correct a refused draft and
+stage it again. Canonical state does not change before publication.
+
+After synthesis starts, `expedition resume` does not revalidate each report
+against the current Map. It checks that the reports, the scan configuration,
+and the Map units and capability boundaries are unchanged. File contents are
+not synthesis inputs, so an edit or a `map update` that keeps the units and
+boundaries does not force a new synthesis. When an input changed, follow the
+`next` steps. Run a survey again only when its report no longer validates.
+Then run `charthouse expedition synthesize <expedition-id> --restart`. A
+restart copies the current Map to `draft_path` again and keeps the earlier
+draft at `previous-map.json` in the same directory. Give both to the
+synthesizer so that it can reuse boundaries that still hold.
 
 ## Phase 4: map gate
 
@@ -131,31 +162,45 @@ Show the user:
 - Unsupported scan areas
 - Perimeter regions that require a scan-policy decision
 
-Wait for explicit approval. Record boundary corrections and rejected findings
-in the Expedition Chronicle.
+Show these from the staged draft Map. Wait for explicit approval. Then record
+each approval in the Expedition:
+
+```text
+charthouse expedition approve <expedition-id> --all --json
+charthouse expedition approve <expedition-id> --capability <capability-id> --json
+```
+
+Approve a boundary only after the user approves it. For a correction, change
+the draft Map, stage it again, and ask again. A new stage keeps the approval of
+each unchanged boundary and drops the approval of each changed boundary. Any
+change to the draft, including a finding, returns the gate to
+`awaiting-approval`. Approve again after the user reviews the change. The
+`approved` and `provenance` fields in the draft have no effect. Record boundary
+corrections and rejected findings in the Expedition Chronicle.
 
 ## Phase 5: publication
 
-After approval:
+When `charthouse expedition status <expedition-id> --json` reports `approved`:
 
-1. Replace preliminary capability classifications with the approved Map.
-2. Write approved canonical artifacts.
-3. Set `approved: true` and `provenance: human-approved` on approved
-   capabilities.
-4. Run `charthouse navigator regenerate all --root <repo>`.
-5. Run `charthouse check --root <repo>`.
-6. Report Map publication and Bearing health separately. Use
+1. Run `charthouse navigator regenerate all --root <repo>`. It writes the
+   approved boundaries to `.charthouse/map.json` with `approved: true` and
+   `provenance: human-approved`, and it generates the Navigator views.
+2. Copy the approved documentation map and anomaly report from the draft
+   directory to `docs/charthouse/`.
+3. Run `charthouse check --root <repo>`.
+4. Report Map publication and Bearing health separately. Use
    `published_with_findings` when the Map is approved but the Bearing has
    errors or warnings. Do not describe the Bearing as healthy in that state.
-7. Show all created files.
+5. Show all created files.
 
-`navigator regenerate` refuses when any capability boundary remains
-preliminary, when a survey checkpoint is not valid or its report changed after
-acceptance, or when its rescan finds a new boundary. After a refusal for a new
-boundary, run `charthouse map update --root <repo>`, show the new boundary to the
-user, and repeat the approval step. Initialization and reconciliation do not
-publish preliminary Navigator briefs, Claude agents, path rules, or portable
-skills. Successful regeneration records the Expedition as published.
+`navigator regenerate` refuses when a survey checkpoint is not valid or its
+report changed after acceptance, when the synthesis inputs or the staged draft
+changed, when a boundary in the draft has no approval, or when its rescan finds
+a new boundary. After a refusal for a new boundary, run `charthouse map update
+--root <repo>`, then `charthouse expedition resume <expedition-id>`, and follow
+its next steps. Initialization and reconciliation do not publish preliminary
+Navigator briefs, Claude agents, path rules, or portable skills. Successful
+regeneration records the Expedition as published.
 
 Do not add inline `CHARTHOUSE[K-...]` markers during an Expedition. Add approved
 markers in a later Voyage because markers modify product files.

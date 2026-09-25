@@ -174,6 +174,17 @@ export function fingerprintFile(path) {
   return sha256Buffer(readFileSync(path));
 }
 
+function sortedKeys(value) {
+  if (Array.isArray(value)) return value.map(sortedKeys);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])]));
+}
+
+// A digest of JSON content that does not depend on the order of object keys.
+export function digestJson(value) {
+  return sha256Buffer(Buffer.from(JSON.stringify(sortedKeys(value))));
+}
+
 function globBase(pattern) {
   const wildcard = pattern.search(/[*?]/);
   const prefix = wildcard === -1 ? pattern : pattern.slice(0, wildcard);

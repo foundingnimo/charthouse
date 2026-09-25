@@ -43,8 +43,8 @@ Charthouse provides:
   synthesis
 - Durable Expedition transaction IDs, accepted-report checkpoints, and
   interruption-safe resume
-- A publication gate: Navigators stay drafts until every capability boundary
-  is human-approved and each survey checkpoint is valid
+- A staged Map gate: the draft Map and each boundary approval stay in the
+  Expedition, and Navigators stay drafts until publication applies them
 - A project-local Tool Gap Log for recurring operations missing from the Toolbox
 - Document review: Charthouse re-checks a document whose evidence changed
 - Atomic writer locking with owner details and safe stale-lock recovery
@@ -134,7 +134,8 @@ supports Claude skills or shared `SKILL.md` files.
    Expedition can take significant time and tokens. It does not edit product
    code. Charthouse checkpoints each accepted survey report. If the session stops,
    a new session uses `charthouse expedition resume` and repeats only reports whose
-   files or baseline no longer validate.
+   files or baseline no longer validate. After synthesis starts, the draft Map
+   and your approvals stay in the Expedition until publication.
 
 6. After publication, review the generated repository state before committing
    it. Charthouse normally creates `.charthouse/`, `docs/charthouse/`, and `.agents/skills/`;

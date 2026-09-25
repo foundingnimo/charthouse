@@ -124,11 +124,23 @@ approves capability boundaries and ownership before they become authoritative.
 The synthesizer receives only the four reports whose validation result is
 successful. It cannot delegate.
 
+`expedition synthesize` records the synthesis inputs in the Expedition: the
+commit, the scan configuration, the Map units and capability boundaries, and
+the report digests. The synthesizer edits a draft Map in the Expedition draft
+root. `expedition stage` checks the draft and records its digest, and
+`expedition approve` records each human approval in the Expedition. An approval
+covers one boundary definition, and the Expedition also records which staged
+draft a person approved as a whole. Canonical state does not change until
+publication. File contents are not synthesis inputs, so an edit or a `map
+update` that keeps the units and boundaries does not force a new synthesis.
+
 Preliminary capabilities create no Navigator brief, Claude agent, path rule,
 or portable skill. Generation is available only after every capability has
-explicit human approval. Under one writer lock, `navigator regenerate` checks
-the approved Map, requires each survey checkpoint of the open Expedition to be
-valid with an unchanged report, and rescans the repository. It writes nothing
+explicit human approval. Under one writer lock, `navigator regenerate` requires
+each survey checkpoint of the open Expedition to be valid with an unchanged
+report, requires unchanged synthesis inputs and an unchanged staged draft,
+requires an approval for each boundary in the draft, and rescans the
+repository. It merges the approved draft into the rescan. It writes nothing
 when the rescan finds a boundary that no approved capability covers, such as a
 package added after approval.
 

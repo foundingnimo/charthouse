@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { acceptAllSurveys } from "./helpers/surveys.mjs";
+import { acceptAllSurveys, approveExpeditionMap } from "./helpers/surveys.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bin = join(packageRoot, "bin/charthouse");
@@ -42,15 +42,7 @@ function editConfig(change) {
 }
 
 function approveAllCapabilities() {
-  acceptAllSurveys(sandbox, run);
-  const mapPath = join(sandbox, ".charthouse/map.json");
-  const map = JSON.parse(readFileSync(mapPath, "utf8"));
-  map.capabilities = map.capabilities.map((capability) => ({
-    ...capability,
-    approved: true,
-    provenance: "human-approved"
-  }));
-  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`);
+  approveExpeditionMap(sandbox, run);
   const result = run("navigator", "regenerate", "all", "--root", sandbox);
   assert.equal(result.status, 0, result.stderr);
 }
@@ -146,24 +138,16 @@ test("init starts a resumable Expedition without publishing preliminary Navigato
   assert.equal(existsSync(join(sandbox, ".agents/skills")), false);
   const premature = run("navigator", "regenerate", "all", "--root", sandbox);
   assert.equal(premature.status, 1);
-  assert.match(premature.stderr, /human-approved/);
+  assert.match(premature.stderr, /E-0001 cannot publish until each survey checkpoint is valid/);
   const status = JSON.parse(run("expedition", "status", "--root", sandbox, "--json").stdout);
   assert.deepEqual(status.next_roles, ["structure", "capability", "documentation", "duplication"]);
   assert.ok(readFileSync(join(sandbox, "docs/charthouse/charter.md"), "utf8").includes("# Charthouse Charter"));
 });
 
-function markAllCapabilitiesApproved() {
-  const mapPath = join(sandbox, ".charthouse/map.json");
-  const map = readMap();
-  map.capabilities = map.capabilities.map((capability) => ({ ...capability, approved: true, provenance: "human-approved" }));
-  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`);
-}
-
 test("regeneration refuses a capability that the publication rescan finds after approval", () => {
   assert.equal(run("init", "--root", sandbox).status, 0);
-  acceptAllSurveys(sandbox, run);
-  markAllCapabilitiesApproved();
-  const approvedMap = readFileSync(join(sandbox, ".charthouse/map.json"), "utf8");
+  approveExpeditionMap(sandbox, run);
+  const canonicalMap = readFileSync(join(sandbox, ".charthouse/map.json"), "utf8");
   mkdirSync(join(sandbox, "packages/new"), { recursive: true });
   writeFileSync(join(sandbox, "packages/new/package.json"), `${JSON.stringify({ name: "new", version: "1.0.0" })}\n`);
   writeFileSync(join(sandbox, "packages/new/index.js"), "export const added = true;\n");
@@ -171,14 +155,13 @@ test("regeneration refuses a capability that the publication rescan finds after 
   const regenerate = run("navigator", "regenerate", "all", "--root", sandbox);
   assert.equal(regenerate.status, 1);
   assert.match(regenerate.stderr, /cap-packages-new/);
-  assert.equal(readFileSync(join(sandbox, ".charthouse/map.json"), "utf8"), approvedMap);
+  assert.equal(readFileSync(join(sandbox, ".charthouse/map.json"), "utf8"), canonicalMap);
   assert.equal(existsSync(join(sandbox, ".claude/agents")), false);
-  assert.equal(JSON.parse(run("expedition", "status", "--root", sandbox, "--json").stdout).checkpoint_status, "ready-for-synthesis");
+  assert.equal(JSON.parse(run("expedition", "status", "--root", sandbox, "--json").stdout).checkpoint_status, "approved");
 });
 
 test("regeneration refuses while an Expedition survey checkpoint is missing or changed", () => {
   assert.equal(run("init", "--root", sandbox).status, 0);
-  markAllCapabilitiesApproved();
 
   const unsurveyed = run("navigator", "regenerate", "all", "--root", sandbox);
   assert.equal(unsurveyed.status, 1);
@@ -197,6 +180,209 @@ test("regeneration refuses while an Expedition survey checkpoint is missing or c
   assert.match(changed.stderr, /duplication/);
   assert.equal(existsSync(join(sandbox, ".claude/agents")), false);
   assert.equal(JSON.parse(run("expedition", "status", "--root", sandbox, "--json").stdout).checkpoint_status, "ready-for-synthesis");
+});
+
+function expeditionJson(...args) {
+  const result = run("expedition", ...args, "--root", sandbox, "--json");
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+function editDraft(path, change) {
+  const draft = JSON.parse(readFileSync(join(sandbox, path), "utf8"));
+  change(draft);
+  writeFileSync(join(sandbox, path), `${JSON.stringify(draft, null, 2)}\n`);
+}
+
+test("an Expedition stages synthesis and approvals outside canonical state until publication", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  acceptAllSurveys(sandbox, run);
+  const canonicalPath = join(sandbox, ".charthouse/map.json");
+  const canonical = readFileSync(canonicalPath, "utf8");
+  const early = run("expedition", "stage", "E-0001", "--root", sandbox);
+  assert.equal(early.status, 1);
+  assert.match(early.stderr, /has not started synthesis/);
+
+  const started = expeditionJson("synthesize", "E-0001");
+  assert.equal(started.outcome, "Synthesis started");
+  assert.equal(started.draft_path, ".charthouse/drafts/E-0001/synthesis/map.json");
+  assert.deepEqual(JSON.parse(readFileSync(join(sandbox, started.draft_path), "utf8")), JSON.parse(canonical));
+  assert.equal(started.expedition.status, "synthesizing");
+  assert.equal(started.expedition.synthesis.current, true);
+  assert.match(started.expedition.next[0], /expedition stage E-0001/);
+  assert.equal(expeditionJson("synthesize", "E-0001").outcome, "Synthesis already started");
+  const unapproved = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(unapproved.status, 1);
+  assert.match(unapproved.stderr, /human-approved in the Expedition\. E-0001 is synthesizing/);
+
+  editDraft(started.draft_path, (draft) => {
+    draft.capabilities.find((item) => item.id === "cap-packages-auth").purpose = "Issue and verify session tokens.";
+  });
+  const staged = expeditionJson("stage", "E-0001");
+  assert.deepEqual(staged.capabilities, ["cap-apps-web", "cap-fixture-root", "cap-packages-auth"]);
+  assert.equal(staged.expedition.status, "awaiting-approval");
+  const partial = expeditionJson("approve", "E-0001", "--capability", "cap-apps-web");
+  assert.deepEqual(partial.remaining, ["cap-fixture-root", "cap-packages-auth"]);
+  assert.match(partial.expedition.next[0], /1 of 3 capability boundaries are approved/);
+  assert.deepEqual(JSON.parse(run("status", "--root", sandbox, "--json").stdout).expedition.synthesis, { current: true, staged_capabilities: 3, approved_capabilities: 1 });
+  assert.equal(readFileSync(canonicalPath, "utf8"), canonical);
+
+  // A draft change after staging needs a new stage. Staging keeps each approval
+  // whose boundary is unchanged and drops the others.
+  editDraft(started.draft_path, (draft) => {
+    draft.capabilities.find((item) => item.id === "cap-fixture-root").purpose = "Own the workspace build.";
+  });
+  const changed = run("expedition", "approve", "E-0001", "--all", "--root", sandbox);
+  assert.equal(changed.status, 1);
+  assert.match(changed.stderr, /changed after staging/);
+  assert.deepEqual(expeditionJson("stage", "E-0001").approvals_dropped, []);
+  editDraft(started.draft_path, (draft) => {
+    draft.capabilities.find((item) => item.id === "cap-apps-web").purpose = "Serve the web app.";
+  });
+  assert.deepEqual(expeditionJson("stage", "E-0001").approvals_dropped, ["cap-apps-web"]);
+  for (const args of [["--all", "--capability", "cap-apps-web"], []]) {
+    const invalid = run("expedition", "approve", "E-0001", ...args, "--root", sandbox);
+    assert.equal(invalid.status, 1);
+  }
+  const unknown = run("expedition", "approve", "E-0001", "--capability", "cap-missing", "--root", sandbox);
+  assert.match(unknown.stderr, /Not in the staged draft Map: cap-missing/);
+
+  const approved = expeditionJson("approve", "E-0001", "--all");
+  assert.equal(approved.outcome, "Every capability boundary approved");
+  assert.equal(approved.expedition.status, "approved");
+  assert.match(approved.expedition.next[0], /navigator regenerate all/);
+  assert.equal(readFileSync(canonicalPath, "utf8"), canonical);
+
+  const published = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(published.status, 0, published.stderr);
+  const map = readMap();
+  assert.ok(map.capabilities.every((item) => item.approved === true && item.provenance === "human-approved"));
+  assert.equal(map.capabilities.find((item) => item.id === "cap-apps-web").purpose, "Serve the web app.");
+  assert.equal(expeditionJson("status").status, "published");
+  const closed = run("expedition", "stage", "E-0001", "--root", sandbox);
+  assert.equal(closed.status, 1);
+  assert.match(closed.stderr, /E-0001 is published; it has no open synthesis/);
+});
+
+test("a staged change to findings needs a new approval before publication", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const expedition = approveExpeditionMap(sandbox, run);
+  const draftPath = `${expedition.draft_root}/synthesis/map.json`;
+  editDraft(draftPath, (draft) => {
+    draft.anomalies.push({ id: "anomaly-late", kind: "misplaced-shared-code", severity: "minor", detail: "Added after approval.", paths: ["apps/web/src/index.ts"], evidence: [], confidence: 0.6 });
+  });
+  const restaged = expeditionJson("stage", "E-0001");
+  // Every boundary is unchanged, so each keeps its approval, but the draft as a whole was not approved.
+  assert.deepEqual(restaged.approvals_dropped, []);
+  assert.equal(restaged.expedition.status, "awaiting-approval");
+  assert.match(restaged.expedition.next[0], /3 of 3 capability boundaries are approved/);
+  const refused = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /E-0001 is awaiting-approval/);
+
+  assert.equal(expeditionJson("approve", "E-0001", "--all").expedition.status, "approved");
+  assert.equal(run("navigator", "regenerate", "all", "--root", sandbox).status, 0);
+  assert.ok(readMap().anomalies.some((item) => item.id === "anomaly-late"));
+});
+
+test("a content-only Map update after synthesis keeps the Expedition publishable", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveExpeditionMap(sandbox, run);
+  const before = readMap().generated_at;
+  const source = join(sandbox, "packages/auth/src/token.ts");
+  writeFileSync(source, `${readFileSync(source, "utf8")}export const edited = true;\n`);
+  assert.equal(run("map", "update", "--root", sandbox).status, 0);
+  assert.notEqual(readMap().generated_at, before);
+
+  const resumed = expeditionJson("resume", "E-0001");
+  assert.equal(resumed.status, "approved");
+  assert.equal(resumed.synthesis.current, true);
+  assert.deepEqual(resumed.next_roles, []);
+  assert.match(resumed.next[0], /navigator regenerate all/);
+  const published = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(published.status, 0, published.stderr);
+  assert.equal(expeditionJson("status").status, "published");
+});
+
+test("a structural change after synthesis needs a new synthesis before publication", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveExpeditionMap(sandbox, run);
+  mkdirSync(join(sandbox, "packages/new"), { recursive: true });
+  writeFileSync(join(sandbox, "packages/new/package.json"), `${JSON.stringify({ name: "new", version: "1.0.0" })}\n`);
+  writeFileSync(join(sandbox, "packages/new/index.js"), "export const added = true;\n");
+  assert.equal(run("map", "update", "--root", sandbox).status, 0);
+
+  const resumed = expeditionJson("resume", "E-0001");
+  assert.equal(resumed.synthesis.current, false);
+  assert.deepEqual(resumed.synthesis.changed_inputs, ["Map units or capability boundaries"]);
+  assert.match(resumed.next.at(-1), /expedition synthesize E-0001 --restart/);
+  for (const args of [["navigator", "regenerate", "all"], ["expedition", "stage", "E-0001"]]) {
+    const refused = run(...args, "--root", sandbox);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /synthesis inputs of E-0001 changed: Map units or capability boundaries/);
+  }
+  // The new unit changed the deterministic Map, so the reports must cover it.
+  const restart = run("expedition", "synthesize", "E-0001", "--restart", "--root", sandbox);
+  assert.equal(restart.status, 1);
+  assert.match(restart.stderr, /valid for the current Map/);
+
+  approveExpeditionMap(sandbox, run);
+  const published = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(published.status, 0, published.stderr);
+  assert.ok(readMap().capabilities.some((item) => item.id === "cap-packages-new" && item.approved === true));
+});
+
+test("a synthesis restart keeps the earlier draft for reuse", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  acceptAllSurveys(sandbox, run);
+  const { draft_path: draftPath } = expeditionJson("synthesize", "E-0001");
+  editDraft(draftPath, (draft) => { draft.capabilities[0].purpose = "Kept from the first draft."; });
+  const restarted = expeditionJson("synthesize", "E-0001", "--restart");
+  assert.equal(restarted.outcome, "Synthesis restarted");
+  const previous = JSON.parse(readFileSync(join(sandbox, ".charthouse/drafts/E-0001/synthesis/previous-map.json"), "utf8"));
+  assert.equal(previous.capabilities[0].purpose, "Kept from the first draft.");
+  assert.deepEqual(JSON.parse(readFileSync(join(sandbox, draftPath), "utf8")), readMap());
+});
+
+test("staging refuses a draft Map that changes units or breaks a capability", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  acceptAllSurveys(sandbox, run);
+  const { draft_path: draftPath } = expeditionJson("synthesize", "E-0001");
+  const pristine = readFileSync(join(sandbox, draftPath), "utf8");
+  const cases = [
+    [(draft) => draft.units.push({ id: "unit-invented", name: "invented", root: "invented", kind: "node", scope: "included" }), /must not add or remove repository units/],
+    [(draft) => { delete draft.capabilities[0].confidence; }, /capabilities\[0\]\.confidence must be a number from 0 to 1/],
+    [(draft) => draft.capabilities.push({ ...draft.capabilities[0] }), /is a duplicate/],
+    [(draft) => { draft.capabilities[1].primary_paths = []; }, /capabilities\[1\]\.primary_paths must be a non-empty array/]
+  ];
+  for (const [change, message] of cases) {
+    writeFileSync(join(sandbox, draftPath), pristine);
+    editDraft(draftPath, change);
+    const refused = run("expedition", "stage", "E-0001", "--root", sandbox);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, message);
+  }
+  writeFileSync(join(sandbox, draftPath), "{ not json");
+  assert.match(run("expedition", "stage", "E-0001", "--root", sandbox).stderr, /not valid JSON/);
+  assert.equal(expeditionJson("status").status, "synthesizing");
+});
+
+test("a changed survey report discards a started synthesis", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const expedition = approveExpeditionMap(sandbox, run);
+  const reportPath = expedition.surveys.duplication.report_path;
+  const report = join(sandbox, reportPath);
+  writeFileSync(report, readFileSync(report, "utf8").replace("are reviewed", "were edited after acceptance"));
+  const resumed = expeditionJson("resume", "E-0001");
+  assert.equal(resumed.synthesis.current, false);
+  assert.deepEqual(resumed.synthesis.changed_inputs, ["duplication report"]);
+  assert.deepEqual(resumed.next_roles, ["duplication"]);
+
+  const accepted = expeditionJson("accept-report", "E-0001", "--role", "duplication", "--file", reportPath);
+  assert.equal(accepted.expedition.status, "ready-for-synthesis");
+  assert.equal(accepted.expedition.synthesis, null);
+  const record = JSON.parse(readFileSync(join(sandbox, ".charthouse/expeditions/E-0001.json"), "utf8"));
+  assert.equal(record.events.at(-1).type, "synthesis-discarded");
 });
 
 test("ambiguous vendor and build directories are scanned by default", () => {
@@ -583,6 +769,15 @@ test("Expedition records must match the published schema", async () => {
   const valid = JSON.parse(readFileSync(recordPath, "utf8"));
   const { validateExpedition } = await import(join(packageRoot, "scripts/lib/expedition-state.mjs"));
   assert.equal(validateExpedition(structuredClone(valid)).id, "E-0001");
+  const digest = `sha256:${"0".repeat(64)}`;
+  const synthesis = {
+    started_at: valid.created_at,
+    draft_path: `${valid.draft_root}/synthesis/map.json`,
+    inputs: { commit: null, config_digest: digest, map_digest: digest, reports: { structure: digest, capability: digest, documentation: digest, duplication: digest } },
+    staged: null,
+    approvals: [],
+    approved_digest: null
+  };
   const malformed = {
     "an unknown top-level field": (record) => { record.extra = true; },
     "a missing baseline commit": (record) => { delete record.baseline.commit; },
@@ -600,13 +795,30 @@ test("Expedition records must match the published schema", async () => {
     "an event without a time": (record) => { delete record.events[0].at; },
     "an event with an unknown role": (record) => { record.events[0].role = "security"; },
     "an event with an unknown field": (record) => { record.events[0].actor = "agent"; },
-    "a numeric event detail": (record) => { record.events[0].detail = 1; }
+    "a numeric event detail": (record) => { record.events[0].detail = 1; },
+    "a synthesis record before synthesis": (record) => { record.synthesis = synthesis; },
+    "a synthesizing status without synthesis": (record) => { record.status = "synthesizing"; },
+    "an approval status without a staged draft": (record) => { Object.assign(record, { status: "approved", synthesis }); },
+    "a synthesis draft outside the Expedition": (record) => { Object.assign(record, { status: "synthesizing", synthesis: { ...synthesis, draft_path: ".charthouse/map.json" } }); },
+    "a synthesis input without a report": (record) => { Object.assign(record, { status: "synthesizing", synthesis: { ...synthesis, inputs: { ...synthesis.inputs, reports: {} } } }); },
+    "an approved status without an approved draft": (record) => {
+      Object.assign(record, { status: "approved", synthesis: { ...synthesis, staged: { at: synthesis.started_at, digest, capabilities: 1 }, approvals: [{ capability: "cap-apps-web", digest, at: synthesis.started_at }] } });
+    },
+    "a duplicate approval": (record) => {
+      const approval = { capability: "cap-apps-web", digest, at: synthesis.started_at };
+      Object.assign(record, { status: "awaiting-approval", synthesis: { ...synthesis, staged: { at: synthesis.started_at, digest, capabilities: 3 }, approvals: [approval, approval] } });
+    }
   };
   for (const [name, change] of Object.entries(malformed)) {
     const record = structuredClone(valid);
     change(record);
     assert.throws(() => validateExpedition(record), /Invalid Expedition/, name);
   }
+  // Records written before synthesis staging have no synthesis field.
+  const older = structuredClone(valid);
+  delete older.synthesis;
+  assert.equal(validateExpedition(older).id, "E-0001");
+  assert.equal(validateExpedition({ ...structuredClone(valid), status: "synthesizing", synthesis }).status, "synthesizing");
 
   const record = structuredClone(valid);
   record.events = [42];
@@ -1132,38 +1344,34 @@ test("a modified tracked file keeps its full path in the changed-path list", asy
 test("map update keeps a human-approved capability that spans several units", () => {
   assert.equal(git("init", "--quiet").status, 0);
   assert.equal(run("init", "--root", sandbox).status, 0);
-  acceptAllSurveys(sandbox, run);
   const mapPath = join(sandbox, ".charthouse/map.json");
-  const map = JSON.parse(readFileSync(mapPath, "utf8"));
-  const drafts = map.capabilities.map((item) => item.id).sort();
-  assert.deepEqual(drafts, ["cap-apps-web", "cap-fixture-root", "cap-packages-auth"]);
-  map.capabilities = [
-    {
-      id: "cap-identity",
-      name: "Identity",
-      purpose: "Own sign-in for the web app and the auth package.",
-      primary_paths: ["apps/web/**", "packages/auth/**"],
-      secondary_paths: [],
-      units: ["unit-apps-web", "unit-packages-auth"],
-      entrypoints: ["packages/auth/src/index.ts"],
-      invariants: [{ statement: "A session token is never logged.", evidence: ["packages/auth/src/index.ts"], confidence: 0.8 }],
-      review: [{ navigator: "cap-fixture-root", reason: "the workspace build wires the package." }],
-      verification: ["npm test --workspace packages/auth"],
-      rules: ["Keep the token format in one module."],
-      confidence: 0.9,
-      evidence: ["packages/auth/package.json"],
-      provenance: "human-approved",
-      approved: true
-    },
-    {
-      ...map.capabilities.find((item) => item.id === "cap-fixture-root"),
-      provenance: "human-approved",
-      approved: true
-    }
-  ];
-  map.anomalies.push({ id: "anomaly-auth-copy", kind: "misplaced-shared-code", severity: "minor", detail: "apps/web copies a helper from packages/auth.", paths: ["apps/web/src/auth.ts"], evidence: ["packages/auth/src/index.ts"], confidence: 0.8 });
-  map.unresolved.push({ id: "unresolved-scope-1", kind: "unassigned-scope", paths: ["docs/**"], detail: "No capability owns docs/." });
-  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`);
+  approveExpeditionMap(sandbox, run, (map) => {
+    const drafts = map.capabilities.map((item) => item.id).sort();
+    assert.deepEqual(drafts, ["cap-apps-web", "cap-fixture-root", "cap-packages-auth"]);
+    map.capabilities = [
+      {
+        id: "cap-identity",
+        name: "Identity",
+        purpose: "Own sign-in for the web app and the auth package.",
+        primary_paths: ["apps/web/**", "packages/auth/**"],
+        secondary_paths: [],
+        units: ["unit-apps-web", "unit-packages-auth"],
+        entrypoints: ["packages/auth/src/index.ts"],
+        invariants: [{ statement: "A session token is never logged.", evidence: ["packages/auth/src/index.ts"], confidence: 0.8 }],
+        review: [{ navigator: "cap-fixture-root", reason: "the workspace build wires the package." }],
+        verification: ["npm test --workspace packages/auth"],
+        rules: ["Keep the token format in one module."],
+        confidence: 0.9,
+        evidence: ["packages/auth/package.json"],
+        provenance: "semantic"
+      },
+      map.capabilities.find((item) => item.id === "cap-fixture-root")
+    ];
+    map.anomalies.push({ id: "anomaly-auth-copy", kind: "misplaced-shared-code", severity: "minor", detail: "apps/web copies a helper from packages/auth.", paths: ["apps/web/src/auth.ts"], evidence: ["packages/auth/src/index.ts"], confidence: 0.8 });
+    map.unresolved.push({ id: "unresolved-scope-1", kind: "unassigned-scope", paths: ["docs/**"], detail: "No capability owns docs/." });
+  });
+  const published = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(published.status, 0, published.stderr);
   const update = run("map", "update", "--root", sandbox);
   assert.equal(update.status, 0, update.stderr);
   const after = JSON.parse(readFileSync(mapPath, "utf8"));
@@ -1239,111 +1447,103 @@ test("brief ranks a direct-debit marketplace task without loading the whole Map"
     }
   }, null, 2)}\n`);
   assert.equal(run("init", "--root", sandbox).status, 0);
-  acceptAllSurveys(sandbox, run);
-  const mapPath = join(sandbox, ".charthouse/map.json");
-  const map = readMap();
-  map.capabilities = [
-    {
-      id: "cap-marketplace-web-application",
-      name: "Marketplace Web Application",
-      purpose: "Serve the marketplace SPA and the apps that mount inside it.",
-      primary_paths: ["apps/web/**", "packages/ezidebit/apps/direct-debit/**"],
-      secondary_paths: [],
-      units: [],
-      evidence: ["packages/ezidebit/apps/direct-debit/src/index.ts"],
-      review: [{ navigator: "cap-marketplace-backend-service", reason: "The app calls the marketplace API." }],
-      verification: [
-        "npm run build --workspace @example/health-web",
-        "npm run test --workspace @example/health-web",
-        "npm run lint --workspace @example/health-web",
-        "npm test --workspace @example/ezidebit-app-direct-debit",
-        "node --test bin/new-web-app.spec.js"
-      ],
-      confidence: 0.9,
-      provenance: "human-approved",
-      approved: true
-    },
-    {
-      id: "cap-marketplace-backend-service",
-      name: "Marketplace Backend Service",
-      purpose: "Serve the marketplace API, including the server routes for installed apps.",
-      primary_paths: ["packages/health-web-service/**"],
-      secondary_paths: [],
-      units: [],
-      evidence: ["packages/health-web-service/src/routes/api/mini-apps/direct-debit.ts"],
-      review: [
-        { navigator: "cap-marketplace-web-application", reason: "The marketplace SPA consumes this API." },
-        { navigator: "cap-unified-api-service", reason: "The backend calls the unified API." },
-        { navigator: "cap-financial-and-payment-integrations", reason: "Direct-debit routes use the payment connector." }
-      ],
-      verification: [
-        "npm run test --workspace packages/health-web-service",
-        "npm run type-check --workspace packages/health-web-service",
-        "npm run lint --workspace packages/health-web-service",
-        "npm run build --workspace packages/health-web-service"
-      ],
-      confidence: 0.9,
-      provenance: "human-approved",
-      approved: true
-    },
-    {
-      id: "cap-financial-and-payment-integrations",
-      name: "Financial and Payment Integrations",
-      purpose: "Provide direct-debit payment clients used by routines and the marketplace backend.",
-      primary_paths: ["packages/ezidebit/src/**"],
-      secondary_paths: [],
-      units: [],
-      evidence: ["packages/ezidebit/package.json"],
-      review: [],
-      verification: ["npm test --workspace packages/ezidebit"],
-      confidence: 0.8,
-      provenance: "human-approved",
-      approved: true
-    },
-    {
-      id: "cap-unified-api-service",
-      name: "Unified API Service",
-      purpose: "Serve one HTTP API over every practice-management target.",
-      primary_paths: ["packages/health-service/**"],
-      secondary_paths: [],
-      units: [],
-      evidence: ["packages/health-service/package.json"],
-      review: [],
-      verification: ["npm test --workspace packages/health-service"],
-      confidence: 0.8,
-      provenance: "human-approved",
-      approved: true
-    },
-    {
-      id: "cap-monorepo-build-and-release-tooling",
-      name: "Monorepo Build and Release Tooling",
-      purpose: "Run repository builds and release workflows.",
-      primary_paths: ["bin/**", ".github/workflows/**"],
-      secondary_paths: [],
-      units: ["unit-fixture-root"],
-      evidence: ["package.json"],
-      review: [],
-      verification: ["npm test"],
-      confidence: 0.8,
-      provenance: "human-approved",
-      approved: true
-    },
-    {
-      id: "cap-authentication",
-      name: "Authentication",
-      purpose: "Issue and check session tokens.",
-      primary_paths: ["packages/auth/**"],
-      secondary_paths: [],
-      units: ["unit-packages-auth"],
-      evidence: ["packages/auth/package.json"],
-      review: [],
-      verification: ["npm test --workspace packages/auth"],
-      confidence: 0.8,
-      provenance: "human-approved",
-      approved: true
-    }
-  ];
-  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`);
+  approveExpeditionMap(sandbox, run, (map) => {
+    map.capabilities = [
+      {
+        id: "cap-marketplace-web-application",
+        name: "Marketplace Web Application",
+        purpose: "Serve the marketplace SPA and the apps that mount inside it.",
+        primary_paths: ["apps/web/**", "packages/ezidebit/apps/direct-debit/**"],
+        secondary_paths: [],
+        units: [],
+        evidence: ["packages/ezidebit/apps/direct-debit/src/index.ts"],
+        review: [{ navigator: "cap-marketplace-backend-service", reason: "The app calls the marketplace API." }],
+        verification: [
+          "npm run build --workspace @example/health-web",
+          "npm run test --workspace @example/health-web",
+          "npm run lint --workspace @example/health-web",
+          "npm test --workspace @example/ezidebit-app-direct-debit",
+          "node --test bin/new-web-app.spec.js"
+        ],
+        confidence: 0.9,
+        provenance: "semantic"
+      },
+      {
+        id: "cap-marketplace-backend-service",
+        name: "Marketplace Backend Service",
+        purpose: "Serve the marketplace API, including the server routes for installed apps.",
+        primary_paths: ["packages/health-web-service/**"],
+        secondary_paths: [],
+        units: [],
+        evidence: ["packages/health-web-service/src/routes/api/mini-apps/direct-debit.ts"],
+        review: [
+          { navigator: "cap-marketplace-web-application", reason: "The marketplace SPA consumes this API." },
+          { navigator: "cap-unified-api-service", reason: "The backend calls the unified API." },
+          { navigator: "cap-financial-and-payment-integrations", reason: "Direct-debit routes use the payment connector." }
+        ],
+        verification: [
+          "npm run test --workspace packages/health-web-service",
+          "npm run type-check --workspace packages/health-web-service",
+          "npm run lint --workspace packages/health-web-service",
+          "npm run build --workspace packages/health-web-service"
+        ],
+        confidence: 0.9,
+        provenance: "semantic"
+      },
+      {
+        id: "cap-financial-and-payment-integrations",
+        name: "Financial and Payment Integrations",
+        purpose: "Provide direct-debit payment clients used by routines and the marketplace backend.",
+        primary_paths: ["packages/ezidebit/src/**"],
+        secondary_paths: [],
+        units: [],
+        evidence: ["packages/ezidebit/package.json"],
+        review: [],
+        verification: ["npm test --workspace packages/ezidebit"],
+        confidence: 0.8,
+        provenance: "semantic"
+      },
+      {
+        id: "cap-unified-api-service",
+        name: "Unified API Service",
+        purpose: "Serve one HTTP API over every practice-management target.",
+        primary_paths: ["packages/health-service/**"],
+        secondary_paths: [],
+        units: [],
+        evidence: ["packages/health-service/package.json"],
+        review: [],
+        verification: ["npm test --workspace packages/health-service"],
+        confidence: 0.8,
+        provenance: "semantic"
+      },
+      {
+        id: "cap-monorepo-build-and-release-tooling",
+        name: "Monorepo Build and Release Tooling",
+        purpose: "Run repository builds and release workflows.",
+        primary_paths: ["bin/**", ".github/workflows/**"],
+        secondary_paths: [],
+        units: ["unit-fixture-root"],
+        evidence: ["package.json"],
+        review: [],
+        verification: ["npm test"],
+        confidence: 0.8,
+        provenance: "semantic"
+      },
+      {
+        id: "cap-authentication",
+        name: "Authentication",
+        purpose: "Issue and check session tokens.",
+        primary_paths: ["packages/auth/**"],
+        secondary_paths: [],
+        units: ["unit-packages-auth"],
+        evidence: ["packages/auth/package.json"],
+        review: [],
+        verification: ["npm test --workspace packages/auth"],
+        confidence: 0.8,
+        provenance: "semantic"
+      }
+    ];
+  });
   const regenerated = run("navigator", "regenerate", "all", "--root", sandbox);
   assert.equal(regenerated.status, 0, regenerated.stderr);
 
@@ -1646,7 +1846,7 @@ test("next lists findings and suggests commands in priority order", () => {
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /Charter: template/);
   assert.match(first.stdout, /1\. \[now\] Write the Charter\.\n   charthouse charter create/);
-  assert.match(first.stdout, /\[now\] Review 3 preliminary capability boundaries/);
+  assert.match(first.stdout, /\[now\] Review 3 preliminary capability boundaries at the Map gate\.\n   charthouse expedition resume E-0001/);
   assert.match(first.stdout, /Run the first Voyage/);
   assert.equal(run("suggest", "--root", sandbox).stdout, first.stdout);
   assert.equal(run("n", "--root", sandbox).stdout, first.stdout);

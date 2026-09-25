@@ -136,7 +136,10 @@ Charthouse Node.js runtime.
 mapper and Map synthesis, then records the valid digest in the Expedition
 transaction. An invalid, stale, incomplete, oversized, overwritten, or
 role-mismatched report, or one that cites excluded evidence, exits with
-failure. See `survey-reports.md` for the stable contract.
+failure. See `survey-reports.md` for the stable contract. `expedition
+synthesize`, `stage`, and `approve` keep the draft Map and each boundary
+approval in the Expedition until `navigator regenerate` publishes them. See
+`expedition.md` for the gate.
 
 Tool Gap commands maintain `.charthouse/tool-gaps.json`. `record` deduplicates one
 reporter within one Voyage or Expedition. Exactly one context is required. A
@@ -220,6 +223,9 @@ charthouse init --canonical-ref <selected-branch>
 /charthouse expedition status [E-0001]
 /charthouse expedition resume [E-0001]
 /charthouse expedition accept-report E-0001 --role <role> --file <assigned-path>
+/charthouse expedition synthesize E-0001 [--restart]
+/charthouse expedition stage E-0001
+/charthouse expedition approve E-0001 (--all | --capability <id>...)
 /charthouse next
 /charthouse suggest
 /charthouse status

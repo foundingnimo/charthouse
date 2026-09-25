@@ -1,4 +1,5 @@
 import { checkRepository } from "./check.mjs";
+import { expeditionIsOpen, listExpeditions } from "./expedition-state.mjs";
 
 const SEVERITY_ORDER = { major: 0, minor: 1, information: 2 };
 
@@ -39,7 +40,14 @@ export function nextSteps(root) {
     suggest("now", `Finish the Charter sections: ${report.charter.template_sections.join(", ")}.`, "charthouse charter update \"<change>\"", "A partial Charter is compared section by section.");
   }
   if (preliminary.length) {
-    suggest("now", `Review ${preliminary.length} preliminary capability boundar${preliminary.length === 1 ? "y" : "ies"} at the Map gate.`, "charthouse map show", "Navigators and rules are only as good as the boundaries they come from.");
+    // An open Expedition holds the draft boundaries and their approvals until publication.
+    const expedition = [...listExpeditions(root)].reverse().find(expeditionIsOpen);
+    suggest(
+      "now",
+      `Review ${preliminary.length} preliminary capability boundar${preliminary.length === 1 ? "y" : "ies"} at the Map gate.`,
+      expedition ? `charthouse expedition resume ${expedition.id}` : "charthouse map show",
+      expedition ? `Expedition ${expedition.id} stages and approves the boundaries before publication.` : "Navigators and rules are only as good as the boundaries they come from."
+    );
   }
   for (const item of report.findings.filter((finding) => finding.level === "error" && finding.code !== "charter-missing" && finding.code !== "document-suspect")) {
     suggest("now", item.message, item.code.startsWith("document-") ? `charthouse run ${quote(`Update ${item.path}`)}` : "charthouse check", "An error keeps the Bearing check red.");

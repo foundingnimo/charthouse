@@ -153,19 +153,47 @@ one isolated path for each survey role:
 /charthouse expedition status [E-0001]
 /charthouse expedition accept-report E-0001 --role <role> --file <assigned-path>
 /charthouse expedition resume [E-0001]
+/charthouse expedition synthesize E-0001 [--restart]
+/charthouse expedition stage E-0001
+/charthouse expedition approve E-0001 (--all | --capability <id>...)
 ```
 
 `accept-report` requires the exact assigned path and validates the role,
 schema, repository baseline, coverage, and supported patterns before it writes
-the checkpoint. Re-accepting an unchanged valid report is idempotent. `resume`
-revalidates accepted report digests and returns the reusable roles and the
-roles that must run again. Preliminary capability boundaries do not create
-host-discoverable Navigators. `navigator regenerate` refuses until every
-capability is human-approved and each survey checkpoint is valid with an
-unchanged report. It rescans the repository before it writes and refuses when
-the rescan finds a boundary that no approved capability covers. In that case,
-run `map update`, review the new boundary, and approve it.
-Successful regeneration records the current Expedition as published.
+the checkpoint. Re-accepting an unchanged valid report is idempotent. Before
+synthesis, `resume` revalidates accepted report digests and returns the
+reusable roles and the roles that must run again.
+
+`synthesize` refuses until each report is valid for the current Map. It records
+the synthesis inputs: the commit, the scan configuration digest, a digest of
+the Map units and capability boundaries, and each report digest. It copies the
+current Map to `.charthouse/drafts/E-0001/synthesis/map.json` as the starting
+draft. After synthesis starts, `resume` checks that these inputs are unchanged
+instead of revalidating each report. File contents and the scan time are not
+inputs, so an edit or a `map update` that keeps the units and boundaries does
+not force a new synthesis. A changed input needs `synthesize --restart`. A
+changed report needs `accept-report` first, and that discards the synthesis.
+
+`stage` checks the draft Map. Its units must match the deterministic Map, and
+each capability needs an id, a name, a purpose, primary paths, a confidence
+from 0 to 1, and evidence. `approve` records a human approval in the Expedition
+for each boundary. An approval covers one boundary definition. When a new stage
+changes a boundary, its approval is dropped. Any change to the staged draft,
+including its findings, needs a new approval before publication. Unchanged
+boundaries keep their approval, so `approve --all` confirms the new draft.
+Approval fields in the draft have no effect. Canonical state does not change
+before publication.
+
+Preliminary capability boundaries do not create host-discoverable Navigators.
+While an Expedition is open, `navigator regenerate` publishes its approved
+draft. It refuses until each survey checkpoint is valid with an unchanged
+report, the synthesis inputs and the staged draft are unchanged, and each
+boundary in the draft is approved. It rescans the repository before it writes
+and refuses when the rescan finds a boundary that no approved capability
+covers. In that case, run `map update`, then follow `expedition resume`.
+Successful regeneration writes the approved boundaries to `.charthouse/map.json`
+and records the current Expedition as published. Without an open Expedition,
+`navigator regenerate` publishes the approved boundaries in the Map.
 
 The deterministic init result lists discovered Instruction Contracts and any
 contract above the configured size warning before mapper agents run. This

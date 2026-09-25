@@ -280,7 +280,13 @@ export function statusSummary(root) {
       checkpoint_status: latestExpedition.checkpoint_status,
       draft_root: latestExpedition.draft_root,
       reusable_roles: latestExpedition.reusable_roles,
-      next_roles: latestExpedition.next_roles
+      next_roles: latestExpedition.next_roles,
+      // Approved boundaries stay in the Expedition until publication.
+      synthesis: latestExpedition.synthesis ? {
+        current: latestExpedition.synthesis.current ?? null,
+        staged_capabilities: latestExpedition.synthesis.staged?.capabilities ?? 0,
+        approved_capabilities: latestExpedition.synthesis.approvals.length
+      } : null
     } : null,
     charter: report.charter.state,
     bearing: { ok: report.ok, current: report.current, errors: report.errors, warnings: report.warnings }

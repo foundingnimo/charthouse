@@ -8,6 +8,13 @@
 - The installers no longer delete a folder at `CHARTHOUSE_HOME` or
   `~/.claude/charthouse` that is not a Charthouse runtime. They stop instead,
   or keep the legacy folder.
+- The Map gate is staged in the Expedition. `expedition synthesize` records the
+  synthesis inputs and refuses stale surveys. `expedition stage` checks the
+  draft Map, and `expedition approve` records each boundary approval. Canonical
+  state changes only when `navigator regenerate` publishes the approved draft.
+- After synthesis starts, `expedition resume` checks the synthesis inputs
+  instead of calling every survey stale after a `map update`, and publication
+  refuses when those inputs changed.
 
 ## 0.1.0 (2026-09-25)
 

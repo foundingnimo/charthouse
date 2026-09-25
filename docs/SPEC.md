@@ -165,15 +165,19 @@ automatic migration and requires a newer tool or manual recovery.
 13. Do not expose preliminary Navigators through host agent or skill
     discovery. Refuse regeneration while any capability is unapproved, while
     a survey checkpoint of the open Expedition is invalid or its report
-    changed, or when the publication rescan finds a new boundary.
-14. Do not modify product code or add inline markers during initialization.
+    changed, while the synthesis inputs or the staged draft changed, or when
+    the publication rescan finds a new boundary.
+14. Keep the draft Map and each boundary approval in the Expedition until
+    publication. Do not change canonical state before publication.
+15. Do not modify product code or add inline markers during initialization.
 
 Survey reports use `schemas/survey-report.schema.json`. Their baseline contains
 the deterministic Map commit, Map generation time, and configuration digest.
 The validator also refuses repository evidence that changed after the Map was
-created, or that the deterministic Map omitted or excluded. The Expedition
+created, or that the deterministic Map omitted or excluded. Before synthesis, the Expedition
 transaction revalidates accepted digests on resume and identifies only the
-survey roles that must run again. Repository patterns can
+survey roles that must run again. After synthesis starts, resume checks the
+recorded synthesis inputs instead. Repository patterns can
 use literal text, `*`, `**`, and `?`; brace
 and character-class globs are not supported. The validator returns all
 detected errors and uses a failing exit status for an invalid report. The

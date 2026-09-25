@@ -435,35 +435,37 @@ function duplicateGroupReviewFindings(previousGroups = [], scannedGroups = []) {
 }
 
 // Rescan the repository and merge the result with the semantic decisions in the
-// current Map. Nothing is written, so a caller can refuse the candidate. The
-// caller holds the project lock across this and applyMapUpdate.
-export function buildMapUpdate(root) {
+// current Map, or in `semantic` when an Expedition publishes its approved draft.
+// Nothing is written, so a caller can refuse the candidate. The caller holds the
+// project lock across this and applyMapUpdate.
+export function buildMapUpdate(root, { semantic = null } = {}) {
   const migration = repositoryMigrationStatus(root);
   if (!migration.supported) {
     throw new Error(`Repository context cannot be migrated automatically: ${migration.reasons.join(", ")}.`);
   }
   const current = loadState(root);
+  const previous = semantic || current.map;
   const scanStarted = reconciliationState(root, current.config);
   const context = verificationContext(root);
   const scanned = scanRepository(root, current.config);
-  const oldUnits = new Set(current.map.units.map((unit) => unit.id));
+  const oldUnits = new Set(previous.units.map((unit) => unit.id));
   const newUnits = new Set(scanned.units.map((unit) => unit.id));
   const addedUnits = scanned.units.filter((unit) => !oldUnits.has(unit.id));
-  const removedUnits = current.map.units.filter((unit) => !newUnits.has(unit.id));
-  const capabilities = mergeCapabilities(current.map.capabilities, scanned.capabilities, scanned.units);
+  const removedUnits = previous.units.filter((unit) => !newUnits.has(unit.id));
+  const capabilities = mergeCapabilities(previous.capabilities, scanned.capabilities, scanned.units);
   // A survey or synthesizer gives its findings an id. The scan never does, so
   // an id marks a finding that a rescan cannot rebuild and must not drop.
   const semanticFindings = (items) => (items || []).filter((item) => typeof item.id === "string" && item.id);
   const map = {
     ...scanned,
     capabilities,
-    documents: mergeDocuments(current.map.documents, scanned.documents),
-    duplicate_groups: mergeDuplicateGroups(current.map.duplicate_groups, scanned.duplicate_groups),
-    anomalies: [...scanned.anomalies, ...semanticFindings(current.map.anomalies)],
+    documents: mergeDocuments(previous.documents, scanned.documents),
+    duplicate_groups: mergeDuplicateGroups(previous.duplicate_groups, scanned.duplicate_groups),
+    anomalies: [...scanned.anomalies, ...semanticFindings(previous.anomalies)],
     unresolved: [
       ...scanned.unresolved,
-      ...duplicateGroupReviewFindings(current.map.duplicate_groups, scanned.duplicate_groups),
-      ...semanticFindings(current.map.unresolved),
+      ...duplicateGroupReviewFindings(previous.duplicate_groups, scanned.duplicate_groups),
+      ...semanticFindings(previous.unresolved),
       ...addedUnits.map((unit) => ({ kind: "new-unit-needs-semantic-review", unit: unit.id, evidence: [unit.manifest || unit.root] })),
       ...removedUnits.map((unit) => ({ kind: "removed-unit-needs-semantic-review", unit: unit.id, evidence: [unit.manifest || unit.root] }))
     ]

@@ -27,6 +27,11 @@ absolute paths. Do not write `.charthouse/tool-gaps.json`; the caller records it
 Write only to the caller-provided draft directory. Do not modify product code,
 the approved Charter, or published Charthouse artifacts.
 
+The draft Map in that directory starts as a copy of the current Map. Edit its
+capabilities and semantic findings in place. Keep `units` unchanged. Do not set
+`approved: true` or `provenance: human-approved`. A person approves each
+boundary through the caller.
+
 Inputs include deterministic inventory, independent survey reports, current
 Charter, and working-tree state.
 

@@ -1,10 +1,15 @@
-import { lstatSync } from "node:fs";
+import { copyFileSync, lstatSync } from "node:fs";
 import { PATHS, SURVEY_REPORT_ROLES } from "./constants.mjs";
-import { expeditionIsOpen, listExpeditions, readExpedition, recordExpeditionPublished, recordSurveyValidation } from "./expedition-state.mjs";
-import { exists, fingerprintFile, repoPath } from "./fs.mjs";
+import {
+  expeditionIsOpen, listExpeditions, readExpedition, recordApprovals, recordExpeditionPublished,
+  recordSurveyValidation, recordSynthesisStaged, recordSynthesisStarted
+} from "./expedition-state.mjs";
+import { digestJson, exists, fingerprintFile, readJson, repoPath, writeJson } from "./fs.mjs";
 import { withProjectLock } from "./lock.mjs";
 import { applyMapUpdate, buildMapUpdate, loadState } from "./state.mjs";
 import { validateSurveyReport } from "./survey-report.mjs";
+
+const TERMINAL_STATUSES = ["published", "invalidated", "failed", "abandoned"];
 
 function checkedReport(root, state, expedition, role) {
   const survey = expedition.surveys[role];
@@ -35,16 +40,116 @@ function checkedReport(root, state, expedition, role) {
   return { ...validation, digest: fingerprintFile(absolute) };
 }
 
-function summarize(root, expedition, { verify = true } = {}) {
-  const terminal = ["published", "invalidated", "failed", "abandoned"].includes(expedition.status);
-  const verifyReports = verify && !terminal;
-  const state = verifyReports ? loadState(root) : null;
+function fileChanged(root, path, digest) {
+  const absolute = repoPath(root, path);
+  return !exists(absolute) || lstatSync(absolute).isSymbolicLink() || fingerprintFile(absolute) !== digest;
+}
+
+// The synthesizer builds on repository units and capability boundaries. File
+// contents and the scan time stay out of this digest, so an edit or a `map
+// update` that keeps the structure does not force a new synthesis.
+function mapDigest(map) {
+  return digestJson({ units: map.units, capabilities: map.capabilities });
+}
+
+// An approval covers one capability definition. The approval fields stay out,
+// so a draft that copies an approved boundary compares by its content.
+function capabilityDigest(capability) {
+  const { approved, provenance, ...definition } = capability;
+  return digestJson(definition);
+}
+
+function synthesisInputs(state, expedition) {
+  return {
+    commit: state.map.baseline?.commit || null,
+    config_digest: state.fingerprints.config_digest,
+    map_digest: mapDigest(state.map),
+    reports: Object.fromEntries(SURVEY_REPORT_ROLES.map((role) => [role, expedition.surveys[role].report_digest]))
+  };
+}
+
+// What moved since synthesis started: the scan configuration, the Map
+// structure, an accepted survey report, or the staged draft Map.
+function synthesisDrift(root, state, expedition) {
+  const { inputs, staged, draft_path: draftPath } = expedition.synthesis;
+  const moved = [];
+  if (state.fingerprints.config_digest !== inputs.config_digest) moved.push("scan configuration");
+  if (mapDigest(state.map) !== inputs.map_digest) moved.push("Map units or capability boundaries");
+  for (const role of SURVEY_REPORT_ROLES) {
+    if (fileChanged(root, expedition.surveys[role].report_path, inputs.reports[role])) moved.push(`${role} report`);
+  }
+  return { inputs: moved, draft: staged !== null && fileChanged(root, draftPath, staged.digest) };
+}
+
+function assertSynthesisCurrent(root, state, expedition, { draft = false } = {}) {
+  const drift = synthesisDrift(root, state, expedition);
+  if (drift.inputs.length) {
+    throw new Error(`The synthesis inputs of ${expedition.id} changed: ${drift.inputs.join(", ")}. Run \`charthouse expedition resume ${expedition.id}\` for the next step.`);
+  }
+  if (draft && drift.draft) {
+    throw new Error(`The draft Map of ${expedition.id} changed after staging. Run \`charthouse expedition stage ${expedition.id}\` again.`);
+  }
+}
+
+function readDraftMap(root, expedition) {
+  const path = expedition.synthesis.draft_path;
+  const absolute = repoPath(root, path);
+  if (!exists(absolute)) throw new Error(`The draft Map does not exist: ${path}`);
+  if (lstatSync(absolute).isSymbolicLink()) throw new Error(`The draft Map must be a regular file, not a symbolic link: ${path}`);
+  try {
+    return readJson(absolute);
+  } catch (error) {
+    throw new Error(`The draft Map is not valid JSON: ${path}: ${error.message}`);
+  }
+}
+
+function stringArray(value, { nonEmpty = false } = {}) {
+  return Array.isArray(value) && (!nonEmpty || value.length > 0) && value.every((item) => typeof item === "string" && item.length > 0);
+}
+
+// The synthesizer decides capability boundaries and semantic findings. The
+// deterministic scan decides repository units, so a draft cannot change them.
+function draftMapErrors(draft, canonical) {
+  if (!draft || typeof draft !== "object" || Array.isArray(draft)) return ["The draft Map must be a JSON object."];
+  const errors = [];
+  const units = Array.isArray(draft.units) ? new Set(draft.units.map((unit) => unit?.id)) : null;
+  if (!units || units.size !== canonical.units.length || canonical.units.some((unit) => !units.has(unit.id))) {
+    errors.push("units must match the deterministic Map. The synthesizer must not add or remove repository units.");
+  }
+  for (const field of ["documents", "duplicate_groups", "anomalies", "unresolved"]) {
+    if (draft[field] !== undefined && !Array.isArray(draft[field])) errors.push(`${field} must be an array.`);
+  }
+  if (!Array.isArray(draft.capabilities) || !draft.capabilities.length) {
+    errors.push("capabilities must be a non-empty array.");
+    return errors;
+  }
+  const ids = new Set();
+  draft.capabilities.forEach((capability, index) => {
+    const path = `capabilities[${index}]`;
+    if (!capability || typeof capability !== "object" || Array.isArray(capability)) {
+      errors.push(`${path} must be an object.`);
+      return;
+    }
+    for (const field of ["id", "name", "purpose"]) {
+      if (typeof capability[field] !== "string" || !capability[field].trim()) errors.push(`${path}.${field} is required.`);
+    }
+    if (ids.has(capability.id)) errors.push(`${path}.id ${capability.id} is a duplicate.`);
+    ids.add(capability.id);
+    if (!stringArray(capability.primary_paths, { nonEmpty: true })) errors.push(`${path}.primary_paths must be a non-empty array of paths.`);
+    if (capability.secondary_paths !== undefined && !stringArray(capability.secondary_paths)) errors.push(`${path}.secondary_paths must be an array of paths.`);
+    if (typeof capability.confidence !== "number" || capability.confidence < 0 || capability.confidence > 1) errors.push(`${path}.confidence must be a number from 0 to 1.`);
+    if (!stringArray(capability.evidence)) errors.push(`${path}.evidence must be an array of strings.`);
+  });
+  return errors;
+}
+
+function surveyCheckpoints(root, expedition, state) {
   const surveys = {};
   const reusable = [];
   const nextRoles = [];
   for (const role of SURVEY_REPORT_ROLES) {
     const checkpoint = expedition.surveys[role];
-    if (checkpoint.status !== "valid" || !verifyReports) {
+    if (checkpoint.status !== "valid" || !state) {
       surveys[role] = { ...checkpoint, reusable: checkpoint.status === "valid" };
       if (checkpoint.status !== "valid") nextRoles.push(role);
       else reusable.push(role);
@@ -61,6 +166,65 @@ function summarize(root, expedition, { verify = true } = {}) {
     if (unchanged) reusable.push(role);
     else nextRoles.push(role);
   }
+  return { surveys, reusable, nextRoles };
+}
+
+function surveyInstructions(expedition, roles) {
+  return roles.map((role) => `Store the ${role} report at ${expedition.surveys[role].report_path}, then run \`charthouse expedition accept-report ${expedition.id} --role ${role} --file ${expedition.surveys[role].report_path}\`.`);
+}
+
+// After synthesis starts, the accepted reports are fixed inputs. Check that
+// they and the Map structure are unchanged. Do not revalidate each report
+// against a Map that a later `map update` rewrote.
+function summarizeSynthesis(root, expedition, state) {
+  const { id, synthesis } = expedition;
+  const drift = state ? synthesisDrift(root, state, expedition) : { inputs: [], draft: false };
+  const current = drift.inputs.length === 0;
+  // A restart needs survey reports that are valid for the current Map.
+  const checkpoints = current || !state
+    ? surveyCheckpoints(root, expedition, null)
+    : surveyCheckpoints(root, expedition, state);
+  let next;
+  if (!current) {
+    next = [
+      `The synthesis inputs changed: ${drift.inputs.join(", ")}.`,
+      ...surveyInstructions(expedition, checkpoints.nextRoles),
+      `Then run \`charthouse expedition synthesize ${id} --restart\`.`
+    ];
+  } else if (expedition.status === "synthesizing") {
+    next = [`Run the Map synthesizer with the four accepted reports. It writes the draft Map to ${synthesis.draft_path}. Then run \`charthouse expedition stage ${id}\`.`];
+  } else if (drift.draft) {
+    next = [`The draft Map changed after staging. Run \`charthouse expedition stage ${id}\` again.`];
+  } else if (expedition.status === "awaiting-approval") {
+    next = [`Show the staged draft Map at the Map gate. ${synthesis.approvals.length} of ${synthesis.staged.capabilities} capability boundaries are approved, and the draft needs approval as a whole. After explicit approval, run \`charthouse expedition approve ${id} --all\`, or approve single boundaries with --capability <id>.`];
+  } else {
+    next = ["Every staged capability boundary is approved. Run `charthouse navigator regenerate all` to publish."];
+  }
+  return {
+    id,
+    checkpoint_status: expedition.status,
+    status: expedition.status,
+    baseline: expedition.baseline,
+    draft_root: expedition.draft_root,
+    surveys: checkpoints.surveys,
+    reusable_roles: checkpoints.reusable,
+    next_roles: checkpoints.nextRoles,
+    synthesis: {
+      ...synthesis,
+      approvals: synthesis.approvals.map((approval) => approval.capability),
+      current,
+      changed_inputs: drift.inputs,
+      draft_changed: drift.draft
+    },
+    next
+  };
+}
+
+function summarize(root, expedition, { verify = true } = {}) {
+  const terminal = TERMINAL_STATUSES.includes(expedition.status);
+  const state = verify && !terminal ? loadState(root) : null;
+  if (expedition.synthesis && !terminal) return summarizeSynthesis(root, expedition, state);
+  const { surveys, reusable, nextRoles } = surveyCheckpoints(root, expedition, state);
   const effectiveStatus = terminal
     ? expedition.status
     : nextRoles.length === 0 ? "ready-for-synthesis" : "surveying";
@@ -73,11 +237,12 @@ function summarize(root, expedition, { verify = true } = {}) {
     surveys,
     reusable_roles: reusable,
     next_roles: terminal ? [] : nextRoles,
+    synthesis: expedition.synthesis ?? null,
     next: terminal
       ? [`${expedition.id} is ${expedition.status}.`]
       : nextRoles.length
-      ? nextRoles.map((role) => `Store the ${role} report at ${expedition.surveys[role].report_path}, then run \`charthouse expedition accept-report ${expedition.id} --role ${role} --file ${expedition.surveys[role].report_path}\`.`)
-      : ["All four survey checkpoints are valid. Run the Map synthesizer with these exact reports."]
+      ? surveyInstructions(expedition, nextRoles)
+      : [`All four survey checkpoints are valid. Run \`charthouse expedition synthesize ${expedition.id}\`, then run the Map synthesizer with these exact reports.`]
   };
 }
 
@@ -96,7 +261,7 @@ export function acceptExpeditionReport(root, id, { role, file }) {
   }
   return withProjectLock(root, `accept ${role} report for ${id}`, () => {
     const expedition = readExpedition(root, id);
-    if (!["surveying", "ready-for-synthesis"].includes(expedition.status)) {
+    if (!expeditionIsOpen(expedition)) {
       throw new Error(`${id} is ${expedition.status}; it cannot accept a survey report.`);
     }
     const expected = expedition.surveys[role].report_path;
@@ -115,14 +280,95 @@ export function acceptExpeditionReport(root, id, { role, file }) {
   });
 }
 
+// Record the synthesis inputs and give the synthesizer a copy of the current
+// Map as its starting draft. Every survey must be valid for the current Map.
+export function synthesizeExpedition(root, id, { restart = false } = {}) {
+  return withProjectLock(root, `start synthesis for ${id}`, () => {
+    const expedition = readExpedition(root, id);
+    if (!expeditionIsOpen(expedition)) throw new Error(`${id} is ${expedition.status}; it cannot start synthesis.`);
+    if (expedition.synthesis && !restart) {
+      return { outcome: "Synthesis already started", started: false, expedition: summarize(root, expedition) };
+    }
+    const state = loadState(root);
+    const { nextRoles } = surveyCheckpoints(root, expedition, state);
+    if (nextRoles.length) {
+      throw new Error(`${id} cannot start synthesis until each survey report is valid for the current Map. Not ready: ${nextRoles.join(", ")}. Run \`charthouse expedition resume ${id}\`.`);
+    }
+    const draftPath = `${expedition.draft_root}/synthesis/map.json`;
+    // A restart starts from the current Map. The earlier draft stays beside it
+    // so that the synthesizer can reuse boundaries that still hold.
+    if (expedition.synthesis && exists(repoPath(root, draftPath))) {
+      copyFileSync(repoPath(root, draftPath), repoPath(root, `${expedition.draft_root}/synthesis/previous-map.json`));
+    }
+    writeJson(repoPath(root, draftPath), state.map);
+    const updated = recordSynthesisStarted(root, expedition, synthesisInputs(state, expedition));
+    return {
+      outcome: expedition.synthesis ? "Synthesis restarted" : "Synthesis started",
+      started: true,
+      draft_path: draftPath,
+      expedition: summarize(root, updated)
+    };
+  });
+}
+
+function requireSynthesis(expedition, statuses) {
+  if (!expeditionIsOpen(expedition)) throw new Error(`${expedition.id} is ${expedition.status}; it has no open synthesis.`);
+  if (!expedition.synthesis) throw new Error(`${expedition.id} has not started synthesis. Run \`charthouse expedition synthesize ${expedition.id}\`.`);
+  if (!statuses.includes(expedition.status)) {
+    throw new Error(`${expedition.id} is ${expedition.status}. Run \`charthouse expedition stage ${expedition.id}\` first.`);
+  }
+}
+
+export function stageExpeditionMap(root, id) {
+  return withProjectLock(root, `stage the draft Map for ${id}`, () => {
+    const expedition = readExpedition(root, id);
+    requireSynthesis(expedition, ["synthesizing", "awaiting-approval", "approved"]);
+    const state = loadState(root);
+    assertSynthesisCurrent(root, state, expedition);
+    const draft = readDraftMap(root, expedition);
+    const errors = draftMapErrors(draft, state.map);
+    if (errors.length) throw new Error(`The draft Map cannot be staged:\n- ${errors.join("\n- ")}`);
+    const capabilities = draft.capabilities.map((capability) => ({ id: capability.id, digest: capabilityDigest(capability) }));
+    const digest = fingerprintFile(repoPath(root, expedition.synthesis.draft_path));
+    const { expedition: updated, dropped } = recordSynthesisStaged(root, expedition, { digest, capabilities });
+    return {
+      outcome: "Draft Map staged",
+      capabilities: capabilities.map((capability) => capability.id),
+      approvals_dropped: dropped,
+      expedition: summarize(root, updated)
+    };
+  });
+}
+
+export function approveExpedition(root, id, { capabilities = [], all = false } = {}) {
+  if (all === capabilities.length > 0) throw new Error("Pass --all or one or more --capability <id> values, not both.");
+  return withProjectLock(root, `approve capability boundaries for ${id}`, () => {
+    const expedition = readExpedition(root, id);
+    requireSynthesis(expedition, ["awaiting-approval", "approved"]);
+    const state = loadState(root);
+    assertSynthesisCurrent(root, state, expedition, { draft: true });
+    const draft = readDraftMap(root, expedition);
+    const byId = new Map(draft.capabilities.map((capability) => [capability.id, capability]));
+    const unknown = capabilities.filter((capability) => !byId.has(capability));
+    if (unknown.length) throw new Error(`Not in the staged draft Map: ${unknown.join(", ")}.`);
+    const selected = all ? draft.capabilities : [...new Set(capabilities)].map((capability) => byId.get(capability));
+    const updated = recordApprovals(root, expedition, selected.map((capability) => ({ capability: capability.id, digest: capabilityDigest(capability) })), draft.capabilities);
+    const approved = new Set(updated.synthesis.approvals.map((approval) => approval.capability));
+    return {
+      outcome: updated.status === "approved" ? "Every capability boundary approved" : "Capability boundaries approved",
+      approved: selected.map((capability) => capability.id),
+      remaining: draft.capabilities.filter((capability) => !approved.has(capability.id)).map((capability) => capability.id),
+      expedition: summarize(root, updated)
+    };
+  });
+}
+
 // A checkpoint supports publication only while it is valid and its report is
 // still the exact file that Charthouse accepted.
 function unpublishableRoles(root, expedition) {
   return SURVEY_REPORT_ROLES.filter((role) => {
     const survey = expedition.surveys[role];
-    if (survey.status !== "valid") return true;
-    const absolute = repoPath(root, survey.report_path);
-    return !exists(absolute) || lstatSync(absolute).isSymbolicLink() || fingerprintFile(absolute) !== survey.report_digest;
+    return survey.status !== "valid" || fileChanged(root, survey.report_path, survey.report_digest);
   });
 }
 
@@ -134,23 +380,46 @@ function assertApproved(capabilities, remedy = "") {
   throw new Error(`Navigator publication requires every capability boundary to be human-approved. ${count}${names}.${remedy ? ` ${remedy}` : ""}`);
 }
 
-// Check the approved Map, the survey checkpoints, and the rescanned candidate
-// under one lock, and write nothing until all three pass. A package added after
+// While an Expedition is open, its approved draft is the only source of
+// boundary decisions. Canonical state changes only when publication succeeds.
+function approvedDraft(root, state, expedition) {
+  if (expedition.status !== "approved") {
+    throw new Error(`Navigator publication requires every capability boundary to be human-approved in the Expedition. ${expedition.id} is ${expedition.status}. Run \`charthouse expedition resume ${expedition.id}\` for the next step.`);
+  }
+  assertSynthesisCurrent(root, state, expedition, { draft: true });
+  if (expedition.synthesis.approved_digest !== expedition.synthesis.staged.digest) {
+    throw new Error(`The staged draft Map of ${expedition.id} is not the draft that was approved. Run \`charthouse expedition resume ${expedition.id}\` for the next step.`);
+  }
+  const draft = readDraftMap(root, expedition);
+  const approvals = new Map(expedition.synthesis.approvals.map((approval) => [approval.capability, approval.digest]));
+  const unapproved = draft.capabilities.filter((capability) => approvals.get(capability.id) !== capabilityDigest(capability));
+  if (unapproved.length) {
+    throw new Error(`Navigator publication requires every capability boundary to be human-approved. Not approved in ${expedition.id}: ${unapproved.map((capability) => capability.id).join(", ")}.`);
+  }
+  return { ...draft, capabilities: draft.capabilities.map((capability) => ({ ...capability, approved: true, provenance: "human-approved" })) };
+}
+
+// Check the approvals, the survey checkpoints, and the rescanned candidate
+// under one lock, and write nothing until all pass. A package added after
 // approval appears in the candidate as a new preliminary boundary.
 export function publishNavigators(root, name = "all") {
   return withProjectLock(root, "publish Navigator views", () => {
     const state = loadState(root);
-    assertApproved(state.map.capabilities);
-    if (name !== "all" && !state.manifest.navigators[name]) throw new Error(`Unknown Navigator: ${name}`);
     const expedition = [...listExpeditions(root)].reverse().find(expeditionIsOpen) || null;
+    if (!expedition) assertApproved(state.map.capabilities);
+    if (name !== "all" && !state.manifest.navigators[name]) throw new Error(`Unknown Navigator: ${name}`);
+    let semantic = null;
     if (expedition) {
       const roles = unpublishableRoles(root, expedition);
       if (roles.length) {
         throw new Error(`${expedition.id} cannot publish until each survey checkpoint is valid and its report is unchanged. Not ready: ${roles.join(", ")}. Run \`charthouse expedition resume ${expedition.id}\`.`);
       }
+      semantic = approvedDraft(root, state, expedition);
     }
-    const update = buildMapUpdate(root);
-    assertApproved(update.map.capabilities, "The repository changed after approval. Run `charthouse map update`, review each new boundary, and approve it before you publish.");
+    const update = buildMapUpdate(root, { semantic });
+    assertApproved(update.map.capabilities, expedition
+      ? `The repository changed after approval. Run \`charthouse map update\`, then \`charthouse expedition resume ${expedition.id}\` for the next step.`
+      : "The repository changed after approval. Run `charthouse map update`, review each new boundary, and approve it before you publish.");
     const result = applyMapUpdate(root, update);
     return { ...result, expedition: expedition ? recordExpeditionPublished(root, expedition) : null };
   });

@@ -22,6 +22,7 @@
       "enum": [
         "surveying",
         "ready-for-synthesis",
+        "synthesizing",
         "awaiting-approval",
         "approved",
         "publishing",
@@ -65,6 +66,9 @@
         "duplication": { "$ref": "#/$defs/survey" }
       }
     },
+    "synthesis": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/synthesis" }]
+    },
     "events": {
       "type": "array",
       "items": {
@@ -81,6 +85,68 @@
     }
   },
   "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "synthesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "draft_path", "inputs", "staged", "approvals", "approved_digest"],
+      "properties": {
+        "started_at": { "type": "string", "format": "date-time" },
+        "draft_path": { "type": "string" },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit", "config_digest", "map_digest", "reports"],
+          "properties": {
+            "commit": { "type": ["string", "null"] },
+            "config_digest": { "$ref": "#/$defs/digest" },
+            "map_digest": { "$ref": "#/$defs/digest" },
+            "reports": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["structure", "capability", "documentation", "duplication"],
+              "properties": {
+                "structure": { "$ref": "#/$defs/digest" },
+                "capability": { "$ref": "#/$defs/digest" },
+                "documentation": { "$ref": "#/$defs/digest" },
+                "duplication": { "$ref": "#/$defs/digest" }
+              }
+            }
+          }
+        },
+        "staged": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["at", "digest", "capabilities"],
+              "properties": {
+                "at": { "type": "string", "format": "date-time" },
+                "digest": { "$ref": "#/$defs/digest" },
+                "capabilities": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capability", "digest", "at"],
+            "properties": {
+              "capability": { "type": "string", "minLength": 1 },
+              "digest": { "$ref": "#/$defs/digest" },
+              "at": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "approved_digest": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+        }
+      }
+    },
     "survey": {
       "type": "object",
       "additionalProperties": false,

@@ -84,4 +84,5 @@ This command runs the deterministic validator and records the accepted digest.
 An invalid result exits with failure and lists all detected problems. Ask only
 the responsible survey agent to correct its return. Use `charthouse expedition
 resume <expedition-id> --json` after interruption. Do not synthesize until all
-four checkpoints are valid. Keep draft files out of publication and commits.
+four checkpoints are valid; `charthouse expedition synthesize` refuses until
+then. Keep draft files out of publication and commits.

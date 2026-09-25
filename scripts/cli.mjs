@@ -20,7 +20,7 @@ import { abandonVoyage, activateVoyage, createVoyage, finishVoyage, getVoyage, l
 import { buildBrief, renderBrief } from "./lib/brief.mjs";
 import { adapterStatus } from "./lib/adapters.mjs";
 import { clearStaleContributionLock, contributionLockStatus, contributionStatePath, dismissContribution, listContributions, markContributionSubmitted, previewContribution, recordContribution, showContribution } from "./lib/contributions.mjs";
-import { acceptExpeditionReport, expeditionStatus, publishNavigators, resumeExpedition } from "./lib/expeditions.mjs";
+import { acceptExpeditionReport, approveExpedition, expeditionStatus, publishNavigators, resumeExpedition, stageExpeditionMap, synthesizeExpedition } from "./lib/expeditions.mjs";
 
 function option(args, name) {
   const index = args.indexOf(name);
@@ -197,6 +197,31 @@ function expeditionCommand(root, action, args, json) {
     output(result, json);
     if (!result.accepted) process.exitCode = 1;
     return;
+  }
+  if (action === "synthesize") {
+    const usage = "charthouse expedition synthesize <id> [--restart]";
+    const id = args.shift();
+    if (!id) throw new Error(`Usage: ${usage}`);
+    const restart = option(args, "--restart");
+    if (restart !== null && restart !== true) throw new Error("--restart does not take a value.");
+    rejectArguments(args, usage);
+    return output(synthesizeExpedition(root, id, { restart: Boolean(restart) }), json);
+  }
+  if (action === "stage") {
+    const id = args.shift();
+    if (!id) throw new Error("Usage: charthouse expedition stage <id>");
+    rejectArguments(args, "charthouse expedition stage <id>");
+    return output(stageExpeditionMap(root, id), json);
+  }
+  if (action === "approve") {
+    const usage = "charthouse expedition approve <id> (--all | --capability <id>...)";
+    const id = args.shift();
+    if (!id) throw new Error(`Usage: ${usage}`);
+    const all = option(args, "--all");
+    if (all !== null && all !== true) throw new Error("--all does not take a value.");
+    const capabilities = repeatedOption(args, "--capability");
+    rejectArguments(args, usage);
+    return output(approveExpedition(root, id, { capabilities, all: Boolean(all) }), json);
   }
   throw new Error(`Unknown expedition action: ${action}`);
 }

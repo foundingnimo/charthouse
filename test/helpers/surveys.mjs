@@ -70,3 +70,23 @@ export function acceptAllSurveys(sandbox, run) {
   }
   return expedition;
 }
+
+// Run the Map gate the way a caller does after the surveys: start synthesis, let
+// `editDraft` stand in for the synthesizer, stage the draft, and approve every
+// boundary. Canonical state stays unchanged until `navigator regenerate`.
+export function approveExpeditionMap(sandbox, run, editDraft = null) {
+  const expedition = acceptAllSurveys(sandbox, run);
+  const started = run("expedition", "synthesize", expedition.id, "--root", sandbox, "--json");
+  assert.equal(started.status, 0, started.stderr);
+  if (editDraft) {
+    const draftPath = join(sandbox, JSON.parse(started.stdout).draft_path);
+    const draft = JSON.parse(readFileSync(draftPath, "utf8"));
+    editDraft(draft);
+    writeFileSync(draftPath, `${JSON.stringify(draft, null, 2)}\n`);
+  }
+  const staged = run("expedition", "stage", expedition.id, "--root", sandbox, "--json");
+  assert.equal(staged.status, 0, staged.stderr);
+  const approved = run("expedition", "approve", expedition.id, "--all", "--root", sandbox, "--json");
+  assert.equal(approved.status, 0, approved.stderr);
+  return expedition;
+}
