@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 (2026-09-25)
+
 - First public release.
 - Map a repository with a deterministic inventory scan and four isolated
   survey agents, then synthesize a current-state Map for human approval.
