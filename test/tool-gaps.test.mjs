@@ -171,6 +171,13 @@ test("Tool Gap recording requires exactly one Voyage or Expedition context", () 
   const ambiguous = run(...base, "--voyage", "V-0001", "--expedition", "E-0001", "--root", sandbox);
   assert.equal(ambiguous.status, 1);
   assert.match(ambiguous.stderr, /exactly one of --voyage or --expedition/);
+  const unknown = run(...base, "--expedition", "E-0099", "--root", sandbox);
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stderr, /Unknown Expedition: E-0099/);
+  const malformed = run(...base, "--expedition", "expedition-one", "--root", sandbox);
+  assert.equal(malformed.status, 1);
+  assert.match(malformed.stderr, /E-0001 form/);
+  assert.deepEqual(readLog().gaps, []);
 });
 
 test("a Tool Gap exports, resolves, reopens, and dismisses safely", () => {

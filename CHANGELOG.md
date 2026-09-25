@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `tool gap record --expedition` rejects an Expedition id that does not exist.
+
 ## 0.1.0 (2026-09-25)
 
 - First public release.

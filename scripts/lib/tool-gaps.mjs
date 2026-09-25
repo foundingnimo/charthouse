@@ -1,4 +1,5 @@
 import { PATHS, SCHEMA_VERSION } from "./constants.mjs";
+import { expeditionRecordPath } from "./expedition-state.mjs";
 import { exists, readJson, repoPath, writeJson } from "./fs.mjs";
 import { withProjectLock } from "./lock.mjs";
 
@@ -186,6 +187,7 @@ function recordToolGapUnlocked(root, input, registeredTools = []) {
   const voyage = input.voyage ? identifier(input.voyage, "--voyage") : null;
   const expedition = input.expedition ? identifier(input.expedition, "--expedition") : null;
   if (Boolean(voyage) === Boolean(expedition)) throw new Error("Tool Gap recording requires exactly one Voyage or Expedition context.");
+  if (expedition && !exists(expeditionRecordPath(root, expedition))) throw new Error(`Unknown Expedition: ${expedition}`);
   const context = voyage || expedition;
   const reporter = identifier(input.reporter || "charthouse", "--reporter");
   const report = {

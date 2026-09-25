@@ -244,8 +244,9 @@ roles. Synthesis requires four successful validations.
 ```
 
 The Log is `.charthouse/tool-gaps.json`. One reporter can add one observation per
-Voyage or Expedition. Exactly one context is required. Repeat `--checked` or
-pass a comma-separated list. Three observations across at least two Voyages
+Voyage or Expedition. Exactly one context is required. An Expedition id must
+exist in `.charthouse/expeditions/`. Repeat `--checked` or pass a
+comma-separated list. Three observations across at least two Voyages
 promote a gap from `observed` to `candidate`; one Expedition cannot promote its
 own reports. Export prints a redacted proposal and does not use the network.
 Resolve accepts only a registered installed tool. A report can reopen a
