@@ -1,0 +1,28 @@
+{
+  "name": "@foundingnimo/charthouse",
+  "version": "0.0.0",
+  "description": "Ambient repository cartography and durable context for coding agents",
+  "type": "module",
+  "license": "MIT",
+  "author": "foundingnimo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/foundingnimo/charthouse.git"
+  },
+  "homepage": "https://github.com/foundingnimo/charthouse#readme",
+  "bugs": {
+    "url": "https://github.com/foundingnimo/charthouse/issues"
+  },
+  "bin": {
+    "charthouse": "./bin/charthouse"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "validate": "node scripts/validate-plugin.mjs",
+    "preversion": "npm test && npm run validate",
+    "version": "node scripts/sync-version.mjs && git add .claude-plugin/plugin.json CHANGELOG.md"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

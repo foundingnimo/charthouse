@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "mode": "advise",
+  "git": {
+    "canonical_ref": null
+  },
+  "scan": {
+    "packages": {
+      "include": {
+        "names": [],
+        "paths": []
+      },
+      "exclude": {
+        "names": [],
+        "paths": []
+      },
+      "excluded_behavior": "stub"
+    },
+    "package_overrides": [],
+    "tests": {
+      "mode": "evidence",
+      "patterns": [
+        "test/**",
+        "tests/**",
+        "**/test/**",
+        "**/tests/**",
+        "**/__tests__/**",
+        "**/*.test.*",
+        "**/*.spec.*"
+      ]
+    },
+    "fixtures": {
+      "mode": "evidence",
+      "patterns": [
+        "fixtures/**",
+        "**/fixtures/**",
+        "**/__fixtures__/**",
+        "**/testdata/**",
+        "**/__snapshots__/**"
+      ]
+    },
+    "generated": {
+      "mode": "exclude",
+      "patterns": [
+        "dist/**",
+        "**/dist/**",
+        "coverage/**",
+        "**/coverage/**",
+        ".next/**",
+        "**/.next/**",
+        ".cache/**",
+        "**/.cache/**",
+        "*.min.js",
+        "*.map"
+      ]
+    },
+    "documents": {
+      "mode": "full",
+      "include": [],
+      "exclude": []
+    },
+    "instructions": {
+      "patterns": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".cursorrules",
+        ".github/copilot-instructions.md",
+        ".cursor/rules/**"
+      ],
+      "size_warning_bytes": 150000
+    },
+    "gitignored": {
+      "default": "record",
+      "include": [],
+      "exclude": [],
+      "hide": []
+    },
+    "paths": {
+      "exclude": []
+    },
+    "languages": {
+      "include": [],
+      "exclude": []
+    },
+    "max_file_size": 10485760,
+    "follow_symlinks": false,
+    "full_expedition_move_threshold": 0.2
+  },
+  "pull_request": {
+    "enabled": true,
+    "max_words": 250,
+    "mode": "body"
+  }
+}

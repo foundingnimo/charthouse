@@ -1,0 +1,5 @@
+{
+  "id": "account-fixture",
+  "email": "fixture@example.test",
+  "roles": ["reader"]
+}

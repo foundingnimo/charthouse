@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/contributions.schema.json",
+  "title": "Charthouse Upstream Improvement Log",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "next_id", "improvements"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "next_id": { "type": "integer", "minimum": 1 },
+    "improvements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/improvement" }
+    }
+  },
+  "$defs": {
+    "improvement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "key", "type", "title", "observed", "expected", "source",
+        "charthouse_version", "first_seen", "last_seen", "occurrences", "status",
+        "dismissal", "submission"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^MI-[0-9]{4,}$" },
+        "key": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "type": { "enum": ["bug", "enhancement"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "observed": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "expected": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "source": { "enum": ["ambient", "tool-gap", "user"] },
+        "charthouse_version": { "type": "string", "minLength": 1 },
+        "first_seen": { "type": "string", "format": "date-time" },
+        "last_seen": { "type": "string", "format": "date-time" },
+        "occurrences": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["candidate", "dismissed", "submitted"] },
+        "dismissal": { "type": ["object", "null"] },
+        "submission": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

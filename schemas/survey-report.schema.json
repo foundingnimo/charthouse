@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/survey-report.schema.json",
+  "title": "Charthouse Expedition survey report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "role",
+    "baseline",
+    "summary",
+    "findings",
+    "unresolved",
+    "tool_gaps"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "role": { "enum": ["structure", "capability", "documentation", "duplication"] },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "config_digest", "map_generated_at"],
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "config_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "map_generated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "findings": { "$ref": "#/$defs/findings" },
+    "unresolved": { "$ref": "#/$defs/findings" },
+    "tool_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "need", "existing_tools_checked", "fallback_kind", "fallback_summary", "input_shape", "output_shape"],
+        "properties": {
+          "key": { "$ref": "#/$defs/id" },
+          "need": { "type": "string", "minLength": 1 },
+          "existing_tools_checked": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "fallback_kind": { "type": "string", "minLength": 1 },
+          "fallback_summary": { "type": "string", "minLength": 1 },
+          "input_shape": { "type": "string", "minLength": 1 },
+          "output_shape": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } },
+    "dependencies": { "type": "array", "items": { "$ref": "#/$defs/dependency" } },
+    "entrypoints": { "type": "array", "items": { "$ref": "#/$defs/locatedItem" } },
+    "tests": { "type": "array", "items": { "$ref": "#/$defs/locatedItem" } },
+    "capabilities": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+    "documents": { "type": "array", "items": { "$ref": "#/$defs/document" } },
+    "instruction_contracts": { "type": "array", "items": { "$ref": "#/$defs/instructionContract" } },
+    "duplicate_groups": { "type": "array", "items": { "$ref": "#/$defs/duplicateGroup" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "role": { "const": "structure" } }, "required": ["role"] },
+      "then": { "required": ["units", "dependencies", "entrypoints", "tests"] }
+    },
+    {
+      "if": { "properties": { "role": { "const": "capability" } }, "required": ["role"] },
+      "then": { "required": ["capabilities"] }
+    },
+    {
+      "if": { "properties": { "role": { "const": "documentation" } }, "required": ["role"] },
+      "then": { "required": ["documents", "instruction_contracts"] }
+    },
+    {
+      "if": { "properties": { "role": { "const": "duplication" } }, "required": ["role"] },
+      "then": { "required": ["duplicate_groups"] }
+    }
+  ],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "path": { "type": "string", "minLength": 1 },
+    "paths": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+    "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "summary", "evidence", "confidence"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/id" },
+        "summary": { "type": "string", "minLength": 1 },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "root", "purpose", "evidence", "confidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "root": { "$ref": "#/$defs/path" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "kind", "evidence", "confidence"],
+      "properties": {
+        "from": { "$ref": "#/$defs/id" },
+        "to": { "$ref": "#/$defs/id" },
+        "kind": { "type": "string", "minLength": 1 },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "locatedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "unit", "purpose", "evidence", "confidence"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "unit": { "$ref": "#/$defs/id" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "purpose", "units", "primary_paths", "secondary_paths", "evidence", "confidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "purpose": { "type": "string", "minLength": 1 },
+        "units": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+        "primary_paths": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } },
+        "secondary_paths": { "$ref": "#/$defs/paths" },
+        "entrypoints": { "$ref": "#/$defs/paths" },
+        "dependencies": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "consumers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "tests": { "$ref": "#/$defs/paths" },
+        "documents": { "$ref": "#/$defs/paths" },
+        "invariants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "shared_ownership": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "unresolved_ownership": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "classification", "criticality", "claims", "watches", "evidence", "confidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "path": { "$ref": "#/$defs/path" },
+        "classification": { "type": "string", "minLength": 1 },
+        "criticality": { "type": "string", "minLength": 1 },
+        "claims": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "watches": { "$ref": "#/$defs/paths" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "instructionContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "providers", "scope", "parent", "precedence", "evidence", "confidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/path" },
+        "providers": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "scope": { "$ref": "#/$defs/path" },
+        "parent": { "type": ["string", "null"] },
+        "precedence": { "type": "string", "minLength": 1 },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "duplicateGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "paths", "evidence", "confidence"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/id" },
+        "paths": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/path" } },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    }
+  }
+}

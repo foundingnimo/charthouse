@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/map.schema.json",
+  "title": "Charthouse repository map",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "charthouse_version",
+    "generated_at",
+    "baseline",
+    "scan_summary",
+    "files",
+    "units",
+    "capabilities",
+    "dependencies",
+    "documents",
+    "duplicate_groups",
+    "anomalies",
+    "unresolved"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "charthouse_version": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "baseline": {
+      "type": "object",
+      "required": ["commit", "dirty"],
+      "properties": {
+        "commit": { "type": ["string", "null"] },
+        "dirty": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "scan_summary": {
+      "type": "object",
+      "required": ["candidate_files", "included_files", "omitted_files", "roles", "included_units", "stub_units", "omitted_units", "omitted_unit_roots"],
+      "properties": {
+        "candidate_files": { "type": "integer", "minimum": 0 },
+        "included_files": { "type": "integer", "minimum": 0 },
+        "omitted_files": { "type": "integer", "minimum": 0 },
+        "hard_excluded_tracked_files": { "type": "integer", "minimum": 0 },
+        "hard_excluded_tracked_listed": { "type": "integer", "minimum": 0 },
+        "hard_excluded_tracked_redacted": { "type": "integer", "minimum": 0 },
+        "hard_excluded_tracked_truncated": { "type": "boolean" },
+        "roles": { "type": "object" },
+        "included_units": { "type": "integer", "minimum": 0 },
+        "stub_units": { "type": "integer", "minimum": 0 },
+        "omitted_units": { "type": "integer", "minimum": 0 },
+        "omitted_unit_roots": { "type": "array", "items": { "type": "string" } },
+        "perimeter_regions": { "type": "integer", "minimum": 0 },
+        "perimeter_regions_listed": { "type": "integer", "minimum": 0 },
+        "perimeter_truncated": { "type": "boolean" },
+        "gitignored_regions": { "type": "integer", "minimum": 0 },
+        "gitignored_scanned_files": { "type": "integer", "minimum": 0 },
+        "hidden_ignored_regions": { "type": "integer", "minimum": 0 },
+        "review_required_regions": { "type": "integer", "minimum": 0 },
+        "instruction_contracts": { "type": "integer", "minimum": 0 },
+        "instruction_file_warnings": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "instruction_file_warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "size_bytes", "warning_threshold_bytes", "reason"],
+        "properties": {
+          "path": { "type": "string" },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "warning_threshold_bytes": { "type": "integer", "minimum": 1 },
+          "reason": { "const": "host-context-limit" }
+        }
+      }
+    },
+    "excluded_tracked_paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "pattern", "reason"],
+        "properties": {
+          "path": { "type": "string" },
+          "pattern": { "type": "string" },
+          "reason": { "const": "hard-safety" }
+        }
+      }
+    },
+    "instruction_contracts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/instructionContract" }
+    },
+    "instruction_duplicate_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "digest", "paths"],
+        "properties": {
+          "id": { "type": "string" },
+          "digest": { "type": "string" },
+          "paths": { "type": "array", "minItems": 2, "items": { "type": "string" } }
+        }
+      }
+    },
+    "perimeter_regions": { "type": "array", "items": { "$ref": "#/$defs/perimeterRegion" } },
+    "files": { "type": "array", "items": { "type": "object" } },
+    "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } },
+    "capabilities": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+    "dependencies": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "documents": { "type": "array", "items": { "type": "object" } },
+    "duplicate_groups": { "type": "array", "items": { "type": "object" } },
+    "anomalies": { "type": "array", "items": { "type": "object" } },
+    "unresolved": { "type": "array", "items": { "type": "object" } }
+  },
+  "$defs": {
+    "instructionContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "kind", "providers", "scope", "parent", "precedence", "ownership", "size_bytes", "warning_threshold_bytes", "over_limit", "digest"],
+      "properties": {
+        "id": { "type": "string" },
+        "path": { "type": "string" },
+        "kind": { "enum": ["agents", "claude", "gemini", "copilot", "cursor", "custom"] },
+        "providers": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "scope": { "type": "string" },
+        "parent": { "type": ["string", "null"] },
+        "precedence": { "const": "nearest-scope" },
+        "ownership": { "const": "human" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "warning_threshold_bytes": { "type": "integer", "minimum": 1 },
+        "over_limit": { "type": "boolean" },
+        "digest": { "type": ["string", "null"] }
+      }
+    },
+    "perimeterRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind", "treatment", "classification", "reasons", "patterns", "review_required"],
+      "properties": {
+        "path": { "type": "string" },
+        "kind": { "enum": ["directory", "file", "symlink"] },
+        "treatment": { "enum": ["record", "partial"] },
+        "classification": { "enum": ["document", "fixture", "generated", "test", "unknown"] },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "patterns": { "type": "array", "items": { "type": "string" } },
+        "review_required": { "type": "boolean" }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "required": ["id", "name", "root", "kind", "scope"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "root": { "type": "string" },
+        "kind": { "type": "string" },
+        "scope": { "enum": ["included", "stub"] }
+      },
+      "additionalProperties": true
+    },
+    "capability": {
+      "type": "object",
+      "required": ["id", "name", "purpose", "primary_paths", "confidence", "evidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "purpose": { "type": "string" },
+        "primary_paths": { "type": "array", "items": { "type": "string" } },
+        "secondary_paths": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence": { "type": "array", "items": { "type": "string" } },
+        "provenance": { "enum": ["deterministic-draft", "semantic", "human-approved"] },
+        "approved": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from", "to", "kind", "evidence"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "kind": { "type": "string" },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    }
+  }
+}

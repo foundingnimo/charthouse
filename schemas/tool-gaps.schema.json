@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/tool-gaps.schema.json",
+  "title": "Charthouse Tool Gap Log",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "next_id", "gaps"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "next_id": { "type": "integer", "minimum": 1 },
+    "gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gap" }
+    }
+  },
+  "$defs": {
+    "strings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "key", "need", "existing_tools_checked", "fallback_kind",
+        "fallback_summary", "input_shape", "output_shape", "first_seen",
+        "last_seen", "occurrences", "voyages", "reporters",
+        "observation_keys", "status", "resolved_by", "dismissal"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^TG-[0-9]{4,}$" },
+        "key": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "need": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "existing_tools_checked": { "$ref": "#/$defs/strings" },
+        "fallback_kind": { "enum": ["system-utility", "temporary-script", "manual"] },
+        "fallback_summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "input_shape": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "output_shape": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "first_seen": { "type": "string", "format": "date-time" },
+        "last_seen": { "type": "string", "format": "date-time" },
+        "occurrences": { "type": "integer", "minimum": 1 },
+        "voyages": { "$ref": "#/$defs/strings" },
+        "expeditions": { "$ref": "#/$defs/strings" },
+        "reporters": { "$ref": "#/$defs/strings" },
+        "observation_keys": { "$ref": "#/$defs/strings" },
+        "status": { "enum": ["observed", "candidate", "dismissed", "resolved"] },
+        "resolved_by": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["tool", "version", "resolved_at"],
+              "properties": {
+                "tool": { "type": "string", "minLength": 1 },
+                "version": { "type": "string", "minLength": 1 },
+                "resolved_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          ]
+        },
+        "dismissal": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason", "dismissed_at"],
+              "properties": {
+                "reason": { "type": "string", "minLength": 1, "maxLength": 500 },
+                "dismissed_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

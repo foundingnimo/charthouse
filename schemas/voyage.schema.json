@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/voyage.schema.json",
+  "title": "Charthouse Voyage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "id", "objective", "status", "created_at", "updated_at",
+    "baseline", "allow_behind", "plan_path", "proposed_paths", "leased_paths",
+    "navigators", "scope_source", "activated_at", "closed_at", "final_commit",
+    "abandonment_reason", "history"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^V-[0-9]{4,}$" },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "status": { "enum": ["planning", "active", "completed", "abandoned"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "dirty"],
+      "properties": {
+        "commit": { "type": ["string", "null"], "pattern": "^[a-f0-9]{7,40}$" },
+        "dirty": { "type": "boolean" },
+        "canonical_ref": { "type": ["string", "null"], "minLength": 1 },
+        "canonical_commit": { "type": ["string", "null"], "pattern": "^[a-f0-9]{7,40}$" }
+      }
+    },
+    "allow_behind": { "type": "boolean" },
+    "plan_path": { "type": "string" },
+    "proposed_paths": { "$ref": "#/$defs/strings" },
+    "leased_paths": { "$ref": "#/$defs/strings" },
+    "navigators": { "$ref": "#/$defs/strings" },
+    "scope_source": { "enum": [null, "predicted", "explicit"] },
+    "activated_at": { "type": ["string", "null"], "format": "date-time" },
+    "closed_at": { "type": ["string", "null"], "format": "date-time" },
+    "final_commit": { "type": ["string", "null"], "pattern": "^[a-f0-9]{7,40}$" },
+    "abandonment_reason": { "type": ["string", "null"], "maxLength": 500 },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event", "at"],
+        "properties": {
+          "event": { "enum": ["created", "activated", "resumed", "completed", "abandoned"] },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "strings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

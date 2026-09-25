@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/manifest.schema.json",
+  "title": "Charthouse knowledge manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "knowledge", "documents", "navigators"],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/knowledge" }
+    },
+    "documents": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/document" }
+    },
+    "navigators": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/navigator" }
+    }
+  },
+  "$defs": {
+    "knowledge": {
+      "type": "object",
+      "required": ["source", "status", "paths"],
+      "properties": {
+        "source": { "type": "string" },
+        "generated_rule": { "type": ["string", "null"] },
+        "status": {
+          "enum": ["draft", "active", "suspect", "stale", "superseded", "retired"]
+        },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "symbols": { "type": "array", "items": { "type": "string" } },
+        "superseded_by": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "document": {
+      "type": "object",
+      "required": ["path", "status", "criticality", "watches"],
+      "properties": {
+        "path": { "type": "string" },
+        "status": { "enum": ["current", "suspect", "stale", "superseded", "historical"] },
+        "criticality": { "enum": ["binding", "operational", "informational", "historical"] },
+        "watches": { "type": "array", "items": { "type": "string" } },
+        "knowledge": { "type": "array", "items": { "type": "string" } },
+        "verified_commit": { "type": ["string", "null"] },
+        "verified_at": { "type": ["string", "null"] },
+        "verified_dirty": { "type": "boolean" },
+        "verified_evidence": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "navigator": {
+      "type": "object",
+      "required": ["source", "generated_agent", "generated_rule", "generated_skill", "primary_paths"],
+      "properties": {
+        "source": { "type": "string" },
+        "generated_agent": { "type": "string" },
+        "generated_rule": { "type": "string" },
+        "generated_skill": { "type": "string" },
+        "primary_paths": { "type": "array", "items": { "type": "string" } },
+        "secondary_paths": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    }
+  }
+}

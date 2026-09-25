@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "foundingnimo",
+  "displayName": "Charthouse",
+  "version": "0.0.0",
+  "description": "Claude Code adapter for Charthouse's ambient repository maps, specialist Navigators, and verified rationale.",
+  "author": {
+    "name": "foundingnimo"
+  },
+  "homepage": "https://github.com/foundingnimo/charthouse",
+  "repository": "https://github.com/foundingnimo/charthouse",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "grok",
+    "repository-map",
+    "agent-memory",
+    "architecture",
+    "documentation"
+  ]
+}

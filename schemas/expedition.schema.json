@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/expedition.schema.json",
+  "title": "Charthouse Expedition transaction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "status",
+    "created_at",
+    "updated_at",
+    "baseline",
+    "draft_root",
+    "surveys",
+    "events"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^E-[0-9]{4,}$" },
+    "status": {
+      "enum": [
+        "surveying",
+        "ready-for-synthesis",
+        "awaiting-approval",
+        "approved",
+        "publishing",
+        "published",
+        "invalidated",
+        "failed",
+        "abandoned"
+      ]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit",
+        "dirty",
+        "canonical_ref",
+        "canonical_commit",
+        "config_digest",
+        "map_generated_at"
+      ],
+      "properties": {
+        "commit": { "type": ["string", "null"] },
+        "dirty": { "type": "boolean" },
+        "canonical_ref": { "type": "string" },
+        "canonical_commit": { "type": ["string", "null"] },
+        "config_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "map_generated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "draft_root": { "type": "string" },
+    "surveys": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["structure", "capability", "documentation", "duplication"],
+      "properties": {
+        "structure": { "$ref": "#/$defs/survey" },
+        "capability": { "$ref": "#/$defs/survey" },
+        "documentation": { "$ref": "#/$defs/survey" },
+        "duplication": { "$ref": "#/$defs/survey" }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "type"],
+        "properties": {
+          "at": { "type": "string", "format": "date-time" },
+          "type": { "type": "string" },
+          "role": { "enum": ["structure", "capability", "documentation", "duplication"] },
+          "detail": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "survey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "status",
+        "report_path",
+        "report_digest",
+        "validated_at",
+        "attempts",
+        "validation_errors"
+      ],
+      "properties": {
+        "role": { "enum": ["structure", "capability", "documentation", "duplication"] },
+        "status": { "enum": ["missing", "invalid", "valid"] },
+        "report_path": { "type": "string" },
+        "report_digest": { "type": ["string", "null"] },
+        "validated_at": { "type": ["string", "null"], "format": "date-time" },
+        "attempts": { "type": "integer", "minimum": 0 },
+        "validation_errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "path", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "path": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+
+import { assertSupportedNode } from '../scripts/lib/runtime.mjs';
+
+try {
+  assertSupportedNode();
+} catch (error) {
+  console.error(`CHARTHOUSE_ERROR: ${error.message}`);
+  process.exitCode = 1;
+}
+
+if (process.exitCode !== 1) {
+  const { runCli } = await import('../scripts/cli.mjs');
+  runCli(process.argv.slice(2)).catch((error) => {
+    console.error(`CHARTHOUSE_ERROR: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

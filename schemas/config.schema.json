@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/config.schema.json",
+  "title": "Charthouse configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "scan", "pull_request"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "enum": ["observe", "advise", "maintain", "enforce"] },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical_ref"],
+      "properties": {
+        "canonical_ref": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packages",
+        "package_overrides",
+        "tests",
+        "fixtures",
+        "generated",
+        "documents",
+        "paths",
+        "languages",
+        "max_file_size",
+        "follow_symlinks",
+        "full_expedition_move_threshold"
+      ],
+      "properties": {
+        "packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["include", "exclude", "excluded_behavior"],
+          "properties": {
+            "include": { "$ref": "#/$defs/selector" },
+            "exclude": { "$ref": "#/$defs/selector" },
+            "excluded_behavior": { "enum": ["stub", "omit"] }
+          }
+        },
+        "package_overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["selector"],
+            "properties": {
+              "selector": { "$ref": "#/$defs/selector" },
+              "tests": { "$ref": "#/$defs/roleMode" },
+              "fixtures": { "$ref": "#/$defs/roleMode" },
+              "generated": { "$ref": "#/$defs/roleMode" },
+              "documents": { "enum": ["full", "selected", "exclude"] }
+            }
+          }
+        },
+        "tests": { "$ref": "#/$defs/rolePolicy" },
+        "fixtures": { "$ref": "#/$defs/rolePolicy" },
+        "generated": { "$ref": "#/$defs/rolePolicy" },
+        "documents": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "include", "exclude"],
+          "properties": {
+            "mode": { "enum": ["full", "selected", "exclude"] },
+            "include": { "$ref": "#/$defs/patterns" },
+            "exclude": { "$ref": "#/$defs/patterns" }
+          }
+        },
+        "instructions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["patterns", "size_warning_bytes"],
+          "properties": {
+            "patterns": { "$ref": "#/$defs/patterns" },
+            "size_warning_bytes": { "type": "integer", "minimum": 1024 }
+          }
+        },
+        "gitignored": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["default", "include", "exclude", "hide"],
+          "properties": {
+            "default": { "enum": ["record", "scan"] },
+            "include": { "$ref": "#/$defs/patterns" },
+            "exclude": { "$ref": "#/$defs/patterns" },
+            "hide": { "$ref": "#/$defs/patterns" }
+          }
+        },
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exclude"],
+          "properties": {
+            "exclude": { "$ref": "#/$defs/patterns" }
+          }
+        },
+        "languages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["include", "exclude"],
+          "properties": {
+            "include": { "$ref": "#/$defs/patterns" },
+            "exclude": { "$ref": "#/$defs/patterns" }
+          }
+        },
+        "max_file_size": { "type": "integer", "minimum": 1024 },
+        "follow_symlinks": { "type": "boolean" },
+        "full_expedition_move_threshold": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "pull_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "max_words", "mode"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "max_words": { "type": "integer", "minimum": 50, "maximum": 500 },
+        "mode": { "enum": ["body", "comment", "check"] }
+      }
+    }
+  },
+  "$defs": {
+    "patterns": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["names", "paths"],
+      "properties": {
+        "names": { "$ref": "#/$defs/patterns" },
+        "paths": { "$ref": "#/$defs/patterns" }
+      }
+    },
+    "roleMode": {
+      "enum": ["full", "evidence", "exclude"]
+    },
+    "rolePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "patterns"],
+      "properties": {
+        "mode": { "$ref": "#/$defs/roleMode" },
+        "patterns": { "$ref": "#/$defs/patterns" }
+      }
+    }
+  }
+}

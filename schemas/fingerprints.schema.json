@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://charthouse.local/schemas/fingerprints.schema.json",
+  "title": "Charthouse source fingerprints",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "config_digest", "records", "documents"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "config_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "records": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string",
+          "anyOf": [
+            { "pattern": "^sha256:[a-f0-9]{64}$" },
+            { "enum": ["missing", "unsupported", "excluded"] }
+          ]
+        }
+      }
+    },
+    "documents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string",
+          "anyOf": [
+            { "pattern": "^sha256:[a-f0-9]{64}$" },
+            { "enum": ["missing", "unsupported", "excluded"] }
+          ]
+        }
+      }
+    }
+  }
+}
