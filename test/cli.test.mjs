@@ -144,6 +144,35 @@ test("init starts a resumable Expedition without publishing preliminary Navigato
   assert.ok(readFileSync(join(sandbox, "docs/charthouse/charter.md"), "utf8").includes("# Charthouse Charter"));
 });
 
+test("a clean Expedition retires generated Navigators from an earlier state", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveAllCapabilities();
+  const generated = [
+    ".claude/agents/charthouse-packages-auth-navigator.md",
+    ".claude/rules/charthouse/packages-auth.md",
+    ".agents/skills/charthouse-packages-auth-navigator/SKILL.md",
+    "docs/charthouse/navigators/packages-auth.md"
+  ];
+  for (const path of generated) assert.ok(existsSync(join(sandbox, path)), path);
+  // Files that a person wrote in the same folders stay.
+  writeFileSync(join(sandbox, ".claude/agents/my-helper.md"), "# My helper\n");
+  writeFileSync(join(sandbox, ".claude/rules/charthouse/custom.md"), "# Custom rule\n");
+  rmSync(join(sandbox, ".charthouse"), { recursive: true });
+
+  const result = run("init", "--root", sandbox, "--json");
+  assert.equal(result.status, 0, result.stderr);
+  const initialized = JSON.parse(result.stdout);
+  for (const path of generated) {
+    assert.equal(existsSync(join(sandbox, path)), false, path);
+    assert.ok(initialized.retired_views.includes(path), path);
+    assert.ok(existsSync(join(sandbox, ".charthouse/drafts/E-0001/retired-views", path)), path);
+  }
+  assert.equal(existsSync(join(sandbox, ".agents/skills/charthouse-packages-auth-navigator")), false);
+  assert.ok(existsSync(join(sandbox, ".claude/agents/my-helper.md")));
+  assert.ok(existsSync(join(sandbox, ".claude/rules/charthouse/custom.md")));
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(sandbox, ".charthouse/manifest.json"), "utf8")).navigators), []);
+});
+
 test("regeneration refuses a capability that the publication rescan finds after approval", () => {
   assert.equal(run("init", "--root", sandbox).status, 0);
   approveExpeditionMap(sandbox, run);
@@ -1717,6 +1746,25 @@ test("brief returns compact task context without creating a Voyage", () => {
   assert.ok(brief.pre_response_gate.decision_gate.exclude.includes("routine no-write bookkeeping"));
   assert.match(brief.note, /lexical/i);
   assert.equal(existsSync(join(sandbox, ".charthouse/voyages/V-0001.json")), false);
+});
+
+test("the text brief shows one decision block and a one-line gate", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveAllCapabilities();
+  const decided = run("brief", "change auth token handling", "--root", sandbox);
+  assert.equal(decided.status, 0, decided.stderr);
+  assert.equal(decided.stdout.match(/^Required decisions:$/gm)?.length, 1);
+  assert.match(decided.stdout, /The Charter is template/);
+  // The gate is an instruction to the host. The JSON Brief carries it in full.
+  const gate = decided.stdout.split("\n").filter((line) => line.startsWith("Pre-response gate:"));
+  assert.equal(gate.length, 1);
+  assert.ok(gate[0].length <= 100, gate[0]);
+  assert.doesNotMatch(decided.stdout, /focused decision question/);
+
+  fillCharter(sandbox);
+  const clear = run("brief", "change auth token handling", "--root", sandbox);
+  assert.equal(clear.status, 0, clear.stderr);
+  assert.doesNotMatch(clear.stdout, /Required decisions/);
 });
 
 test("brief ranks a direct-debit marketplace task without loading the whole Map", () => {

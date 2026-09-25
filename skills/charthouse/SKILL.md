@@ -63,6 +63,8 @@ Read the workflow reference that matches the command:
 - `refit`: [references/refit.md](references/refit.md)
 
 Use ASD-STE100 Simplified Technical English for Charthouse artifacts. Report the
-outcome, changed files, checked evidence, stale context, and required decision.
+outcome, changed files, checked evidence, and stale context. Ask a required
+decision once, as one question at the end. Do not repeat it in a separate
+block, and do not copy the command's own decision list or pre-response gate.
 Report Map publication and Bearing health separately. Do not report success
 when required verification failed.

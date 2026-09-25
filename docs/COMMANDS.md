@@ -147,7 +147,10 @@ Charthouse does not infer this choice from the current branch, `origin/HEAD`,
 `main`, or `master`.
 
 The first initialization creates a durable Expedition transaction and returns
-one isolated path for each survey role:
+one isolated path for each survey role. It moves generated Navigator views
+from an earlier Charthouse state, such as committed `.claude/agents/charthouse-*`
+files, to the Expedition's `retired-views/` draft folder and lists them in
+`retired_views`:
 
 ```text
 /charthouse expedition status [E-0001]

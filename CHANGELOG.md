@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `init` moves generated Navigator views from an earlier Charthouse state to
+  the Expedition's `retired-views/` draft folder, so that hosts do not discover
+  stale Navigators and new surveys do not reuse their names.
+- The text Brief shows one decision block, and only when a decision exists.
+  The pre-response gate is a one-line pointer in text; the JSON Brief carries
+  it in full. The command skill asks a required decision once.
+- The `init` next steps name `expedition start-survey` and its window token.
+
 ## 0.3.0 (2026-09-25)
 
 - `expedition start-survey` opens a survey window before a mapper runs and

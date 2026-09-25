@@ -330,10 +330,12 @@ export function renderBrief(brief) {
     "Verification:",
     ...lines(brief.verification, (command) => command),
     "",
-    "Required decisions:",
-    ...lines(brief.required_human_decisions, (decision) => decision),
-    "",
-    "Pre-response gate: required. If the premise already holds or the request is materially ambiguous, return only a concise verified conclusion, a material freshness caveat when needed, and one focused decision question. Omit ownership, path inventories, risks, checks, speculative implementation, and routine bookkeeping.",
+    // One decision block, and only when a decision exists. The gate instructs
+    // the host and runs silently, so the text names it; the JSON carries it.
+    ...(brief.required_human_decisions.length
+      ? ["Required decisions:", ...lines(brief.required_human_decisions, (decision) => decision), ""]
+      : []),
+    "Pre-response gate: required. The host applies it silently before it answers.",
     "",
     brief.note
   ];

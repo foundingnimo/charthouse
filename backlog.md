@@ -16,8 +16,9 @@ Status values:
 
 - [ ] Make mapper isolation enforceable on hosts that ignore agent tool
   restrictions.
-- [ ] Verify that a clean Expedition cannot reuse old generated Navigator names.
-- [ ] Remove duplicated decision blocks from host-rendered command responses.
+- [x] Verify that a clean Expedition cannot reuse old generated Navigator names.
+  `init` moves generated views from an earlier state out of host discovery.
+- [x] Remove duplicated decision blocks from host-rendered command responses.
 - [x] Re-run the large-monorepo Map gate with validated reports and compare its
   capability boundaries with the rejected draft.
 - [x] Keep preliminary Navigators isolated from host discovery until a person

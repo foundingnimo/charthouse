@@ -537,13 +537,14 @@ export async function runCli(argv = process.argv.slice(2)) {
     const instructionWarnings = result.map.instruction_file_warnings || [];
     const next = [
       "Review flagged perimeter regions.",
-      `Run the four isolated Charthouse mapper agents. Store each report at its assigned path under ${result.expedition.draft_root}/surveys/ and accept it into ${result.expedition.id}.`,
+      `Run the four isolated Charthouse mapper agents. Before each one, run \`charthouse expedition start-survey ${result.expedition.id} --role <role>\` and keep its window token. Store each report at its assigned path under ${result.expedition.draft_root}/surveys/ and accept it into ${result.expedition.id} with that token.`,
       "Run `charthouse charter create`. The Charter holds the template prompts until then.",
       "Run `charthouse check`."
     ];
     if (instructionWarnings.length) next.unshift("Review oversized agent instruction files before relying on complete host context.");
+    if (result.retired_views.length) next.unshift(`Charthouse moved ${result.retired_views.length} generated view${result.retired_views.length === 1 ? "" : "s"} from an earlier state to ${result.expedition.draft_root}/retired-views/. Hosts no longer discover them, and the new surveys must not reuse their names.`);
     const instructionContracts = (result.map.instruction_contracts || []).map(({ id, path, kind, providers, scope, parent, over_limit }) => ({ id, path, kind, providers, scope, parent, over_limit }));
-    return output({ outcome: "Expedition transaction started", root, canonical: result.canonical, expedition: { id: result.expedition.id, status: result.expedition.status, draft_root: result.expedition.draft_root, surveys: result.expedition.surveys }, files: result.map.files.length, units: result.map.units.length, stubs: result.map.scan_summary.stub_units, omitted_units: result.map.scan_summary.omitted_units, perimeter_regions: result.map.scan_summary.perimeter_regions, review_required_regions: result.map.scan_summary.review_required_regions, instruction_contracts: instructionContracts, instruction_file_warnings: instructionWarnings, capabilities: result.map.capabilities.length, next }, json);
+    return output({ outcome: "Expedition transaction started", root, canonical: result.canonical, expedition: { id: result.expedition.id, status: result.expedition.status, draft_root: result.expedition.draft_root, surveys: result.expedition.surveys }, files: result.map.files.length, units: result.map.units.length, stubs: result.map.scan_summary.stub_units, omitted_units: result.map.scan_summary.omitted_units, perimeter_regions: result.map.scan_summary.perimeter_regions, review_required_regions: result.map.scan_summary.review_required_regions, instruction_contracts: instructionContracts, instruction_file_warnings: instructionWarnings, capabilities: result.map.capabilities.length, retired_views: result.retired_views, next }, json);
   }
   if (!isInitialized(root)) throw new Error("Charthouse is not initialized. Run `charthouse init`.");
 
