@@ -1,8 +1,8 @@
-import { readdirSync, readFileSync, rmdirSync, unlinkSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, readlinkSync, rmdirSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MANIFEST_SCHEMA_VERSION, PATHS, SCHEMA_VERSION } from "./constants.mjs";
-import { copyTextIfMissing, ensureDir, exists, fingerprintPath, matchesGlob, readJson, repoPath, sha256Buffer, watchPathspec, writeJson, writeText } from "./fs.mjs";
+import { copyTextIfMissing, ensureDir, exists, fingerprintFile, fingerprintPath, matchesGlob, readJson, repoPath, sha256Buffer, watchPathspec, writeJson, writeText } from "./fs.mjs";
 import { gitChangedPaths, gitHead } from "./git.mjs";
 import { scanRepository } from "./inventory.mjs";
 import { createGitignoredPolicy, documentFingerprintPolicy, fingerprintExcludes, fingerprintOptions, validateConfig } from "./policy.mjs";
@@ -113,6 +113,32 @@ function changedPathSignature(root, paths) {
     }
   });
   return sha256Buffer(Buffer.from(JSON.stringify(evidence)));
+}
+
+// The full content of a changed file, or the target of a changed symbolic link.
+// Size and time alone would let a same-size edit with a restored time pass.
+function treeEntryDigest(root, path) {
+  const absolute = repoPath(root, path);
+  try {
+    const stat = lstatSync(absolute);
+    if (stat.isSymbolicLink()) return sha256Buffer(Buffer.from(`symlink\0${readlinkSync(absolute)}`));
+    if (stat.isFile()) return fingerprintFile(absolute);
+    return stat.isDirectory() ? "directory" : "unsupported";
+  } catch {
+    return "missing";
+  }
+}
+
+// HEAD and a digest of each changed product file. A survey window compares two
+// snapshots to find what a survey agent wrote. Charthouse state and ignored
+// files are outside it, as they are for reconciliation.
+export function workingTreeSnapshot(root) {
+  const files = Object.fromEntries(relevantChangedPaths(gitChangedPaths(root)).map((path) => [path, treeEntryDigest(root, path)]));
+  return {
+    head_commit: gitHead(root) || null,
+    signature: sha256Buffer(Buffer.from(JSON.stringify(Object.entries(files)))),
+    files
+  };
 }
 
 function reconciliationState(root, config, observedPaths = gitChangedPaths(root)) {

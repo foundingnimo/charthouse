@@ -384,8 +384,9 @@ charthouse tool run documentation-index --status suspect --json
 charthouse tool run duplicate-analysis --path "packages/**" --json
 charthouse tool run survey-report-validate --role capability \
   --file ".charthouse/drafts/<id>/surveys/capability.json" --json
+charthouse expedition start-survey <id> --role capability --json
 charthouse expedition accept-report <id> --role capability \
-  --file ".charthouse/drafts/<id>/surveys/capability.json" --json
+  --file ".charthouse/drafts/<id>/surveys/capability.json" --window <token> --json
 charthouse expedition resume <id> --json
 ```
 
@@ -400,7 +401,9 @@ deterministic Map and configuration baseline, supported path syntax, size
 limit, admitted Map evidence, and required inventory coverage. A path that the
 Map omitted or excluded cannot support a survey claim. `expedition
 accept-report` validates the same contract and records the report digest as a
-durable checkpoint. Each
+durable checkpoint. It also rejects a report whose survey changed a product
+file or HEAD after `expedition start-survey` opened its window. The window
+token stays with the caller, so a survey agent cannot reopen its own window. Each
 top-level mapper gets an isolated report file and cannot delegate. `expedition
 resume` re-checks accepted digests and reports only the roles that must run
 again. Synthesis stops unless the structure, capability, documentation, and

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `expedition start-survey` opens a survey window before a mapper runs and
+  returns a token that the caller keeps. `accept-report --window <token>`
+  rejects a report when a product file or HEAD changed during its survey, or
+  when the window changed after it opened. It refuses a new report without a
+  window. `synthesize` waits while a window is open. Mapper briefs forbid
+  commands that write files.
+
 - Expedition publication is recoverable. `navigator regenerate` stages every
   write, records the Expedition as `publishing`, and applies the plan with the
   Map last. A publication that stops finishes on the next `navigator

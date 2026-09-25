@@ -71,16 +71,27 @@ Use one caller-owned path for each top-level role. For example:
 .charthouse/drafts/<expedition-id>/surveys/duplication.json
 ```
 
+Open the survey window immediately before the survey agent starts:
+
+```text
+charthouse expedition start-survey <expedition-id> --role capability --json
+```
+
 Accept the report into its Expedition checkpoint after the parent stores it:
 
 ```text
 charthouse expedition accept-report <expedition-id> \
   --role capability \
   --file .charthouse/drafts/<expedition-id>/surveys/capability.json \
+  --window <token> \
   --json
 ```
 
 This command runs the deterministic validator and records the accepted digest.
+`--window` takes the token that `start-survey` returned; keep it from the
+survey agent. It rejects the report with `repository-written` when a product
+file or HEAD changed while the survey ran, and with `window-changed` when the
+window changed after it opened. It refuses a new report without a window.
 An invalid result exits with failure and lists all detected problems. Ask only
 the responsible survey agent to correct its return. Use `charthouse expedition
 resume <expedition-id> --json` after interruption. Do not synthesize until all

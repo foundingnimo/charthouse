@@ -222,7 +222,8 @@ after Charthouse proves that its local owner process is gone.
 charthouse init --canonical-ref <selected-branch>
 /charthouse expedition status [E-0001]
 /charthouse expedition resume [E-0001]
-/charthouse expedition accept-report E-0001 --role <role> --file <assigned-path>
+/charthouse expedition start-survey E-0001 --role <role>
+/charthouse expedition accept-report E-0001 --role <role> --file <assigned-path> --window <token>
 /charthouse expedition synthesize E-0001 [--restart]
 /charthouse expedition stage E-0001
 /charthouse expedition approve E-0001 (--all | --capability <id>...)

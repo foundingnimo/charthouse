@@ -33,7 +33,7 @@ const USAGE = {
   contribute: "charthouse contribute <record|list|show|preview|dismiss|submitted|doctor> [arguments] [--json]",
   docs: "charthouse docs <status|check|review [id] [--allow-behind]|confirm <id> --evidence <file> [--allow-behind]> [--json]",
   doctor: "charthouse doctor [--clear-stale-lock]",
-  expedition: "charthouse expedition <status [id]|resume [id]|accept-report <id> --role <role> --file <path>|synthesize <id> [--restart]|stage <id>|approve <id> (--all|--capability <id>...)>",
+  expedition: "charthouse expedition <status [id]|resume [id]|start-survey <id> --role <role>|accept-report <id> --role <role> --file <path> [--window <token>]|synthesize <id> [--restart]|stage <id>|approve <id> (--all|--capability <id>...)>",
   help: "charthouse help [command]",
   impact: "charthouse impact <proposed change>",
   init: "charthouse init --canonical-ref <branch> [--root <repository>]",

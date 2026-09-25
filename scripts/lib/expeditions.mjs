@@ -1,14 +1,15 @@
+import { randomBytes } from "node:crypto";
 import { copyFileSync, lstatSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
 import { PATHS, SURVEY_REPORT_ROLES } from "./constants.mjs";
 import {
-  expeditionIsOpen, listExpeditions, readExpedition, recordApprovals,
+  expeditionIsOpen, listExpeditions, readExpedition, recordApprovals, recordSurveyStarted,
   recordSurveyValidation, recordSynthesisStaged, recordSynthesisStarted
 } from "./expedition-state.mjs";
-import { digestJson, exists, fingerprintFile, readJson, repoPath, writeJson } from "./fs.mjs";
+import { digestJson, exists, fingerprintFile, readJson, repoPath, sha256Buffer, writeJson } from "./fs.mjs";
 import { withProjectLock } from "./lock.mjs";
 import { beginPublication, finishPendingPublication, finishPublication, plannedWrites } from "./publication.mjs";
-import { applyMapUpdate, buildMapUpdate, loadState, repositoryReconciliationStatus } from "./state.mjs";
+import { applyMapUpdate, buildMapUpdate, loadState, repositoryReconciliationStatus, workingTreeSnapshot } from "./state.mjs";
 import { validateSurveyReport } from "./survey-report.mjs";
 
 const TERMINAL_STATUSES = ["published", "invalidated", "failed", "abandoned"];
@@ -216,7 +217,56 @@ function assertNotPublishing(expedition) {
 }
 
 function surveyInstructions(expedition, roles) {
-  return roles.map((role) => `Store the ${role} report at ${expedition.surveys[role].report_path}, then run \`charthouse expedition accept-report ${expedition.id} --role ${role} --file ${expedition.surveys[role].report_path}\`.`);
+  return roles.map((role) => `Run \`charthouse expedition start-survey ${expedition.id} --role ${role}\`, launch the ${role} survey, store its report at ${expedition.surveys[role].report_path}, then run \`charthouse expedition accept-report ${expedition.id} --role ${role} --file ${expedition.surveys[role].report_path} --window <token>\` with the token that start-survey returned.`);
+}
+
+function runningRoles(expedition) {
+  return SURVEY_REPORT_ROLES.filter((role) => expedition.surveys[role].window);
+}
+
+function windowPath(expedition, role) {
+  return `${expedition.draft_root}/surveys/${role}.window.json`;
+}
+
+// Product files that changed since the survey window opened. The record holds
+// the signature that decides; the draft file only names the paths.
+function surveyWrites(root, expedition, role) {
+  const window = expedition.surveys[role].window;
+  const current = workingTreeSnapshot(root);
+  const headMoved = current.head_commit !== window.head_commit;
+  if (!headMoved && current.signature === window.signature) return [];
+  let before = {};
+  try { before = readJson(repoPath(root, windowPath(expedition, role))).files || {}; } catch {}
+  const paths = [...new Set([...Object.keys(before), ...Object.keys(current.files)])]
+    .filter((path) => before[path] !== current.files[path])
+    .sort();
+  const changes = [...(headMoved ? ["HEAD"] : []), ...paths];
+  return changes.length ? changes : ["the working tree"];
+}
+
+// The record is a file that a survey agent could rewrite, and a survey agent
+// could run start-survey itself. Only the caller holds the token, so a window
+// that changed after it opened no longer matches its proof.
+function windowProof(token, { head_commit: headCommit, signature }) {
+  return sha256Buffer(Buffer.from(`${token}\0${headCommit ?? ""}\0${signature}`));
+}
+
+function windowChangedFinding(role) {
+  return {
+    code: "window-changed",
+    path: "repository",
+    message: `The ${role} survey window changed after it opened, so Charthouse cannot tell what the survey wrote. A survey agent must not run Charthouse commands or edit Charthouse state. Start the survey again.`
+  };
+}
+
+function writesFinding(role, changes) {
+  const shown = changes.slice(0, 10).join(", ");
+  const more = changes.length > 10 ? `, and ${changes.length - 10} more` : "";
+  return {
+    code: "repository-written",
+    path: "repository",
+    message: `The repository changed while the ${role} survey ran: ${shown}${more}. A survey agent must not write repository files. If you changed these files yourself, keep or restore them, then start the survey again.`
+  };
 }
 
 // After synthesis starts, the accepted reports are fixed inputs. Check that
@@ -258,6 +308,7 @@ function summarizeSynthesis(root, expedition, state) {
     surveys: checkpoints.surveys,
     reusable_roles: checkpoints.reusable,
     next_roles: checkpoints.nextRoles,
+    running_roles: runningRoles(expedition),
     synthesis: {
       ...synthesis,
       approvals: synthesis.approvals.map((approval) => approval.capability),
@@ -286,6 +337,7 @@ function summarize(root, expedition, { verify = true } = {}) {
     surveys,
     reusable_roles: reusable,
     next_roles: terminal ? [] : nextRoles,
+    running_roles: terminal ? [] : runningRoles(expedition),
     synthesis: expedition.synthesis ?? null,
     next: terminal
       ? [`${expedition.id} is ${expedition.status}.`]
@@ -304,7 +356,7 @@ export function resumeExpedition(root, id = null) {
   return { outcome: `Resume ${result.id}`, ...result };
 }
 
-export function acceptExpeditionReport(root, id, { role, file }) {
+export function acceptExpeditionReport(root, id, { role, file, window: token = null }) {
   if (!SURVEY_REPORT_ROLES.includes(role)) {
     throw new Error(`--role must be one of: ${SURVEY_REPORT_ROLES.join(", ")}.`);
   }
@@ -320,11 +372,57 @@ export function acceptExpeditionReport(root, id, { role, file }) {
     }
     const state = loadState(root);
     const validation = checkedReport(root, state, expedition, role);
+    const checkpoint = expedition.surveys[role];
+    const reaccepted = !checkpoint.window && checkpoint.status === "valid" && validation.digest === checkpoint.report_digest;
+    // A new report, or any report while a survey runs, must come from a survey
+    // that ran inside an authentic window and wrote nothing.
+    if (!reaccepted) {
+      if (!checkpoint.window) {
+        throw new Error(`Run \`charthouse expedition start-survey ${id} --role ${role}\` before you launch the ${role} survey. Charthouse records the repository state at that point and rejects a report whose survey wrote repository files.`);
+      }
+      if (!token || token === true) {
+        throw new Error(`Pass the window token that \`charthouse expedition start-survey ${id} --role ${role}\` returned: --window <token>.`);
+      }
+      const finding = windowProof(token, checkpoint.window) !== checkpoint.window.proof
+        ? windowChangedFinding(role)
+        : (() => {
+          const changes = surveyWrites(root, expedition, role);
+          return changes.length ? writesFinding(role, changes) : null;
+        })();
+      if (finding) {
+        validation.valid = false;
+        validation.errors = [finding, ...validation.errors];
+      }
+    }
     const updated = recordSurveyValidation(root, expedition, role, validation, validation.digest);
     return {
       outcome: validation.valid ? "Survey checkpoint accepted" : "Survey checkpoint rejected",
       accepted: validation.valid,
       validation,
+      expedition: summarize(root, updated)
+    };
+  });
+}
+
+export function startSurvey(root, id, role) {
+  if (!SURVEY_REPORT_ROLES.includes(role)) {
+    throw new Error(`--role must be one of: ${SURVEY_REPORT_ROLES.join(", ")}.`);
+  }
+  return withProjectLock(root, `start the ${role} survey for ${id}`, () => {
+    const expedition = readExpedition(root, id);
+    if (!expeditionIsOpen(expedition)) throw new Error(`${id} is ${expedition.status}; it cannot start a survey.`);
+    assertNotPublishing(expedition);
+    const snapshot = workingTreeSnapshot(root);
+    const token = randomBytes(16).toString("hex");
+    writeJson(repoPath(root, windowPath(expedition, role)), { role, head_commit: snapshot.head_commit, files: snapshot.files });
+    const updated = recordSurveyStarted(root, expedition, role, { ...snapshot, proof: windowProof(token, snapshot) });
+    const reportPath = expedition.surveys[role].report_path;
+    return {
+      outcome: `The ${role} survey window is open`,
+      role,
+      report_path: reportPath,
+      window_token: token,
+      next: [`Keep the window token to yourself; do not give it to the survey agent. Launch the ${role} survey now. Store its report at ${reportPath}, then run \`charthouse expedition accept-report ${id} --role ${role} --file ${reportPath} --window ${token}\`. Acceptance rejects the report if the repository changed during the survey.`],
       expedition: summarize(root, updated)
     };
   });
@@ -345,6 +443,10 @@ export function synthesizeExpedition(root, id, { restart = false } = {}) {
     const reconciliation = repositoryReconciliationStatus(root, state.config);
     if (reconciliation.required) {
       throw new Error(`${id} cannot start synthesis while repository changes are not reconciled: ${reconciliation.reasons.join(", ")}. Run \`charthouse reconcile\` first.`);
+    }
+    const running = runningRoles(expedition);
+    if (running.length) {
+      throw new Error(`The ${running.join(", ")} survey${running.length === 1 ? " is" : "s are"} running. Accept ${running.length === 1 ? "its report" : "their reports"} before synthesis.`);
     }
     const { nextRoles } = surveyCheckpoints(root, expedition, state);
     if (nextRoles.length) {

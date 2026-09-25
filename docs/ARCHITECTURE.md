@@ -107,7 +107,13 @@ read-only `survey-report-validate` tool checks its role, schema, size, Map and
 configuration baseline, paths, globs, confidence values, Tool Gap fields, and
 inventory coverage. Every evidence path must be admitted by the deterministic
 Map. Omitted and excluded paths cannot become semantic evidence. Invalid,
-stale, missing, or overwritten reports stop the Expedition. Existing generated
+stale, missing, or overwritten reports stop the Expedition. `expedition
+start-survey` records HEAD and each changed product file before a survey
+starts, and acceptance rejects a report when they changed during the survey.
+Mappers keep shell access for inspection, so Charthouse detects their writes
+instead of trusting a host's tool restrictions. The window proof binds the
+recorded state to a token that only the caller holds, so a survey agent that
+reopens its window or edits the record fails acceptance. Existing generated
 Navigators are output from a prior survey and cannot supply names or boundaries
 to a new survey.
 

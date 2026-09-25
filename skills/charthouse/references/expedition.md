@@ -32,6 +32,25 @@ caller-owned report path per role under
 `.charthouse/drafts/<expedition-id>/surveys/`. Do not let a survey agent write a
 shared file.
 
+Open a survey window immediately before you launch each survey:
+
+```text
+charthouse expedition start-survey <expedition-id> --role <role> --json
+```
+
+The window records HEAD and each changed product file, and it returns a
+`window_token`. Keep the token in your own context. Do not give it to the
+survey agent. Pass it to `accept-report --window <token>`. Acceptance rejects a
+report when the repository changed while its survey ran, and it rejects the
+report with `window-changed` when the window changed after it opened, for
+example because the survey agent ran `start-survey` itself. `accept-report`
+refuses a new report without a window.
+
+Charthouse state under `.charthouse/`, `docs/charthouse/`, `.claude/`, and
+`.agents/`, and files that Git ignores, are outside this check. Git itself does
+not see an edit to an unchanged tracked file that keeps its size and
+modification time. Do not edit product files while a survey runs.
+
 Launch read-only agents with the inventory path and repository root:
 
 - `charthouse-structure-mapper`: units, entrypoints, dependencies, and tests.
@@ -70,7 +89,7 @@ path and runs:
 
 ```text
 charthouse expedition accept-report <expedition-id> \
-  --role <role> --file <assigned-report-path> --json
+  --role <role> --file <assigned-report-path> --window <token> --json
 ```
 
 The checkpoint command checks the JSON shape, role, Map and configuration

@@ -181,6 +181,22 @@
         "report_digest": { "type": ["string", "null"] },
         "validated_at": { "type": ["string", "null"], "format": "date-time" },
         "attempts": { "type": "integer", "minimum": 0 },
+        "window": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["started_at", "head_commit", "signature", "proof"],
+              "properties": {
+                "started_at": { "type": "string", "format": "date-time" },
+                "head_commit": { "type": ["string", "null"] },
+                "signature": { "$ref": "#/$defs/digest" },
+                "proof": { "$ref": "#/$defs/digest" }
+              }
+            }
+          ]
+        },
         "validation_errors": {
           "type": "array",
           "items": {

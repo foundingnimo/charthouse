@@ -20,7 +20,7 @@ import { abandonVoyage, activateVoyage, createVoyage, finishVoyage, getVoyage, l
 import { buildBrief, renderBrief } from "./lib/brief.mjs";
 import { adapterStatus } from "./lib/adapters.mjs";
 import { clearStaleContributionLock, contributionLockStatus, contributionStatePath, dismissContribution, listContributions, markContributionSubmitted, previewContribution, recordContribution, showContribution } from "./lib/contributions.mjs";
-import { acceptExpeditionReport, approveExpedition, expeditionStatus, publishNavigators, resumeExpedition, stageExpeditionMap, synthesizeExpedition } from "./lib/expeditions.mjs";
+import { acceptExpeditionReport, approveExpedition, expeditionStatus, publishNavigators, resumeExpedition, stageExpeditionMap, startSurvey, synthesizeExpedition } from "./lib/expeditions.mjs";
 
 function option(args, name) {
   const index = args.indexOf(name);
@@ -187,13 +187,24 @@ function expeditionCommand(root, action, args, json) {
     rejectArguments(args, "charthouse expedition resume [id]");
     return output(resumeExpedition(root, id), json);
   }
+  if (action === "start-survey") {
+    const usage = "charthouse expedition start-survey <id> --role <role>";
+    const id = args.shift();
+    if (!id) throw new Error(`Usage: ${usage}`);
+    const role = requiredOption(args, "--role");
+    rejectArguments(args, usage);
+    return output(startSurvey(root, id, role), json);
+  }
   if (action === "accept-report") {
     const id = args.shift();
-    if (!id) throw new Error("Usage: charthouse expedition accept-report <id> --role <role> --file <path>");
+    const usage = "charthouse expedition accept-report <id> --role <role> --file <path> [--window <token>]";
+    if (!id) throw new Error(`Usage: ${usage}`);
     const role = requiredOption(args, "--role");
     const file = requiredOption(args, "--file");
-    rejectArguments(args, "charthouse expedition accept-report <id> --role <role> --file <path>");
-    const result = acceptExpeditionReport(root, id, { role, file });
+    const window = option(args, "--window");
+    if (window === true) throw new Error("--window requires the token that start-survey returned.");
+    rejectArguments(args, usage);
+    const result = acceptExpeditionReport(root, id, { role, file, window });
     output(result, json);
     if (!result.accepted) process.exitCode = 1;
     return;

@@ -22,8 +22,14 @@ Status values:
   capability boundaries with the rejected draft.
 - [x] Keep preliminary Navigators isolated from host discovery until a person
   approves and publishes their capability boundaries.
-- [ ] Prevent mapper shell commands from writing repository files, or detect
-  and reject every write before synthesis.
+- [x] Prevent mapper shell commands from writing repository files, or detect
+  and reject every write before synthesis. A survey window records HEAD and
+  each changed product file; acceptance rejects a report when they changed.
+- [ ] Extend write detection to Charthouse-managed host paths such as
+  `.claude/` and `.agents/`, to ignored files, and to the synthesizer, without
+  flagging files that the host itself writes. Git does not see an edit to a
+  clean tracked file that keeps its size and modification time; decide
+  whether a full rehash is worth its cost on large repositories.
 - [x] Add a resumable Expedition checkpoint after validated surveys so an
   interrupted gate does not repeat the expensive scan.
 - [x] Stage synthesis output and human gate decisions in the Expedition

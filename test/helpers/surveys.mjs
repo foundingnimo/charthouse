@@ -56,7 +56,8 @@ export function surveyReports(sandbox) {
   };
 }
 
-// Store each report at its assigned path and accept it into the open Expedition.
+// Open each survey window, store the report at its assigned path, and accept it
+// into the open Expedition.
 // `run` spawns the Charthouse CLI inside the sandbox.
 export function acceptAllSurveys(sandbox, run) {
   const status = run("expedition", "status", "--root", sandbox, "--json");
@@ -64,8 +65,11 @@ export function acceptAllSurveys(sandbox, run) {
   const expedition = JSON.parse(status.stdout);
   for (const [role, report] of Object.entries(surveyReports(sandbox))) {
     const file = expedition.surveys[role].report_path;
+    const started = run("expedition", "start-survey", expedition.id, "--role", role, "--root", sandbox, "--json");
+    assert.equal(started.status, 0, `${role}: ${started.stderr}`);
+    const token = JSON.parse(started.stdout).window_token;
     writeFileSync(join(sandbox, file), `${JSON.stringify(report, null, 2)}\n`);
-    const accepted = run("expedition", "accept-report", expedition.id, "--role", role, "--file", file, "--root", sandbox, "--json");
+    const accepted = run("expedition", "accept-report", expedition.id, "--role", role, "--file", file, "--window", token, "--root", sandbox, "--json");
     assert.equal(accepted.status, 0, `${role}: ${accepted.stdout}\n${accepted.stderr}`);
   }
   return expedition;

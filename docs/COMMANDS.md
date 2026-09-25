@@ -151,12 +151,23 @@ one isolated path for each survey role:
 
 ```text
 /charthouse expedition status [E-0001]
-/charthouse expedition accept-report E-0001 --role <role> --file <assigned-path>
+/charthouse expedition start-survey E-0001 --role <role>
+/charthouse expedition accept-report E-0001 --role <role> --file <assigned-path> --window <token>
 /charthouse expedition resume [E-0001]
 /charthouse expedition synthesize E-0001 [--restart]
 /charthouse expedition stage E-0001
 /charthouse expedition approve E-0001 (--all | --capability <id>...)
 ```
+
+`start-survey` opens a survey window immediately before a survey agent starts.
+It records HEAD and a digest of each changed product file, and it returns a
+`window_token` that the caller keeps from the survey agent. `accept-report`
+refuses a new report without a window or token. It rejects the report with
+`repository-written` when a product file or HEAD changed during the survey,
+and with `window-changed` when the window changed after it opened. Acceptance
+or rejection closes the window. Charthouse state, files that Git ignores, and
+an edit that keeps a clean file's size and modification time are outside this
+check. `synthesize` waits while a window is open.
 
 `accept-report` requires the exact assigned path and validates the role,
 schema, repository baseline, coverage, and supported patterns before it writes

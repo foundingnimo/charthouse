@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { acceptAllSurveys, approveExpeditionMap } from "./helpers/surveys.mjs";
+import { acceptAllSurveys, approveExpeditionMap, surveyReports } from "./helpers/surveys.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bin = join(packageRoot, "bin/charthouse");
@@ -285,6 +285,107 @@ test("a staged change to findings needs a new approval before publication", () =
   assert.ok(readMap().anomalies.some((item) => item.id === "anomaly-late"));
 });
 
+test("a survey that writes repository files is rejected", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const reports = surveyReports(sandbox);
+  const store = (role) => {
+    const path = `.charthouse/drafts/E-0001/surveys/${role}.json`;
+    writeFileSync(join(sandbox, path), `${JSON.stringify(reports[role], null, 2)}\n`);
+    return path;
+  };
+  const accept = (role, token = null) => run("expedition", "accept-report", "E-0001", "--role", role, "--file", store(role), ...(token ? ["--window", token] : []), "--root", sandbox, "--json");
+  const start = (role) => expeditionJson("start-survey", "E-0001", "--role", role).window_token;
+
+  const unstarted = accept("structure");
+  assert.equal(unstarted.status, 1);
+  assert.match(unstarted.stderr, /Run `charthouse expedition start-survey E-0001 --role structure`/);
+
+  let token = start("structure");
+  assert.match(token, /^[0-9a-f]{32}$/);
+  const tokenless = accept("structure");
+  assert.equal(tokenless.status, 1);
+  assert.match(tokenless.stderr, /--window/);
+  // The mapper edits a product file, for example with a formatter or an install.
+  const source = join(sandbox, "packages/auth/src/token.ts");
+  const original = readFileSync(source, "utf8");
+  writeFileSync(source, `${original}// written by a survey\n`);
+  const written = accept("structure", token);
+  assert.equal(written.status, 1);
+  const rejection = JSON.parse(written.stdout);
+  assert.equal(rejection.accepted, false);
+  const finding = rejection.validation.errors.find((error) => error.code === "repository-written");
+  assert.match(finding.message, /changed while the structure survey ran: packages\/auth\/src\/token\.ts/);
+  // A rejection closes the window, so the survey must run again.
+  assert.match(accept("structure", token).stderr, /start-survey E-0001 --role structure/);
+
+  writeFileSync(source, original);
+  token = start("structure");
+  assert.equal(JSON.parse(accept("structure", token).stdout).accepted, true);
+  // Re-accepting the unchanged report needs no new window.
+  assert.equal(JSON.parse(accept("structure").stdout).accepted, true);
+
+  // Charthouse state is not a product file, so its own writes do not count.
+  token = start("capability");
+  writeFileSync(join(sandbox, "docs/charthouse/notes.md"), "Charthouse-managed.\n");
+  assert.equal(JSON.parse(accept("capability", token).stdout).accepted, true);
+
+  // A commit during the survey moves HEAD.
+  token = start("documentation");
+  assert.equal(git("-c", "user.name=Charthouse Test", "-c", "user.email=charthouse@test.local", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "survey commit").status, 0);
+  const moved = JSON.parse(accept("documentation", token).stdout);
+  assert.match(moved.validation.errors.find((error) => error.code === "repository-written").message, /HEAD/);
+});
+
+test("a survey cannot reset its own window to hide a write", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const report = ".charthouse/drafts/E-0001/surveys/structure.json";
+  const token = expeditionJson("start-survey", "E-0001", "--role", "structure").window_token;
+  // The mapper writes a file, then opens a new window itself.
+  writeFileSync(join(sandbox, "packages/auth/src/token.ts"), "export const token = 'tampered';\n");
+  expeditionJson("start-survey", "E-0001", "--role", "structure");
+  writeFileSync(join(sandbox, report), `${JSON.stringify(surveyReports(sandbox).structure, null, 2)}\n`);
+  const result = JSON.parse(run("expedition", "accept-report", "E-0001", "--role", "structure", "--file", report, "--window", token, "--root", sandbox, "--json").stdout);
+  assert.equal(result.accepted, false);
+  assert.ok(result.validation.errors.some((error) => error.code === "window-changed"));
+});
+
+test("a survey window detects edits to large and already changed files", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const large = join(sandbox, "packages/auth/src/data.bin");
+  writeFileSync(large, Buffer.alloc(3 * 1024 * 1024, 1));
+  assert.equal(run("reconcile", "--root", sandbox).status, 0);
+  const report = ".charthouse/drafts/E-0001/surveys/structure.json";
+  const token = expeditionJson("start-survey", "E-0001", "--role", "structure").window_token;
+  // Same size and the same modification time, new content.
+  const { atime, mtime } = statSync(large);
+  writeFileSync(large, Buffer.alloc(3 * 1024 * 1024, 2));
+  utimesSync(large, atime, mtime);
+  writeFileSync(join(sandbox, report), `${JSON.stringify(surveyReports(sandbox).structure, null, 2)}\n`);
+  const result = JSON.parse(run("expedition", "accept-report", "E-0001", "--role", "structure", "--file", report, "--window", token, "--root", sandbox, "--json").stdout);
+  assert.match(result.validation.errors.find((error) => error.code === "repository-written").message, /packages\/auth\/src\/data\.bin/);
+});
+
+test("re-accepting an unchanged report closes an open window", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const expedition = acceptAllSurveys(sandbox, run);
+  const token = expeditionJson("start-survey", "E-0001", "--role", "capability").window_token;
+  const again = expeditionJson("accept-report", "E-0001", "--role", "capability", "--file", expedition.surveys.capability.report_path, "--window", token);
+  assert.equal(again.accepted, true);
+  assert.deepEqual(again.expedition.running_roles, []);
+  assert.equal(expeditionJson("synthesize", "E-0001").outcome, "Synthesis started");
+});
+
+test("synthesis waits while a survey window is open", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  acceptAllSurveys(sandbox, run);
+  expeditionJson("start-survey", "E-0001", "--role", "capability");
+  const refused = run("expedition", "synthesize", "E-0001", "--root", sandbox);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /The capability survey is running/);
+  const pending = expeditionJson("resume", "E-0001");
+  assert.deepEqual(pending.running_roles, ["capability"]);
+});
+
 test("accepted surveys stay valid when an edit and a reconcile change only file contents", () => {
   assert.equal(run("init", "--root", sandbox).status, 0);
   const expedition = acceptAllSurveys(sandbox, run);
@@ -546,7 +647,8 @@ test("a changed survey report discards a started synthesis", () => {
   assert.deepEqual(resumed.synthesis.changed_inputs, ["duplication report"]);
   assert.deepEqual(resumed.next_roles, ["duplication"]);
 
-  const accepted = expeditionJson("accept-report", "E-0001", "--role", "duplication", "--file", reportPath);
+  const token = expeditionJson("start-survey", "E-0001", "--role", "duplication").window_token;
+  const accepted = expeditionJson("accept-report", "E-0001", "--role", "duplication", "--file", reportPath, "--window", token);
   assert.equal(accepted.expedition.status, "ready-for-synthesis");
   assert.equal(accepted.expedition.synthesis, null);
   const record = JSON.parse(readFileSync(join(sandbox, ".charthouse/expeditions/E-0001.json"), "utf8"));
@@ -781,7 +883,8 @@ test("survey reports are role-specific, baseline-bound, and validated before syn
   const symlinkTarget = `${reportPath}.target`;
   writeFileSync(join(sandbox, symlinkTarget), `${JSON.stringify(report, null, 2)}\n`);
   symlinkSync(join(sandbox, symlinkTarget), absolute);
-  const symbolic = run("expedition", "accept-report", expedition.id, "--role", "capability", "--file", reportPath, "--root", sandbox, "--json");
+  let token = JSON.parse(run("expedition", "start-survey", expedition.id, "--role", "capability", "--root", sandbox, "--json").stdout).window_token;
+  const symbolic = run("expedition", "accept-report", expedition.id, "--role", "capability", "--file", reportPath, "--window", token, "--root", sandbox, "--json");
   assert.equal(symbolic.status, 1);
   assert.ok(JSON.parse(symbolic.stdout).validation.errors.some((item) => item.code === "report-symlink"));
   rmSync(absolute);
@@ -792,7 +895,9 @@ test("survey reports are role-specific, baseline-bound, and validated before syn
   assert.equal(valid.status, 0, valid.stderr);
   assert.equal(JSON.parse(valid.stdout).result.valid, true);
   assert.equal(JSON.parse(valid.stdout).result.counts.capabilities, map.units.length);
-  const accepted = run("expedition", "accept-report", expedition.id, "--role", "capability", "--file", reportPath, "--root", sandbox, "--json");
+  // The symbolic-link rejection closed the window, so the survey starts again.
+  token = JSON.parse(run("expedition", "start-survey", expedition.id, "--role", "capability", "--root", sandbox, "--json").stdout).window_token;
+  const accepted = run("expedition", "accept-report", expedition.id, "--role", "capability", "--file", reportPath, "--window", token, "--root", sandbox, "--json");
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.equal(JSON.parse(accepted.stdout).accepted, true);
   const repeated = run("expedition", "accept-report", expedition.id, "--role", "capability", "--file", reportPath, "--root", sandbox, "--json");
@@ -834,7 +939,8 @@ test("survey reports are role-specific, baseline-bound, and validated before syn
     const checked = run("tool", "run", "survey-report-validate", "--role", role, "--file", rolePath, "--root", sandbox, "--json");
     assert.equal(checked.status, 0, `${role}: ${checked.stdout}\n${checked.stderr}`);
     assert.equal(JSON.parse(checked.stdout).result.valid, true);
-    const checkpoint = run("expedition", "accept-report", expedition.id, "--role", role, "--file", rolePath, "--root", sandbox, "--json");
+    const roleToken = JSON.parse(run("expedition", "start-survey", expedition.id, "--role", role, "--root", sandbox, "--json").stdout).window_token;
+    const checkpoint = run("expedition", "accept-report", expedition.id, "--role", role, "--file", rolePath, "--window", roleToken, "--root", sandbox, "--json");
     assert.equal(checkpoint.status, 0, checkpoint.stderr);
     assert.equal(JSON.parse(checkpoint.stdout).accepted, true);
   }
@@ -849,7 +955,8 @@ test("survey reports are role-specific, baseline-bound, and validated before syn
   const unsupportedGlob = run("tool", "run", "survey-report-validate", "--role", "capability", "--file", reportPath, "--root", sandbox, "--json");
   assert.equal(unsupportedGlob.status, 1);
   assert.ok(JSON.parse(unsupportedGlob.stdout).result.errors.some((item) => item.code === "unsupported-glob"));
-  const rejected = run("expedition", "accept-report", expedition.id, "--role", "capability", "--file", reportPath, "--root", sandbox, "--json");
+  token = JSON.parse(run("expedition", "start-survey", expedition.id, "--role", "capability", "--root", sandbox, "--json").stdout).window_token;
+  const rejected = run("expedition", "accept-report", expedition.id, "--role", "capability", "--file", reportPath, "--window", token, "--root", sandbox, "--json");
   assert.equal(rejected.status, 1);
   assert.equal(JSON.parse(rejected.stdout).accepted, false);
   assert.equal(JSON.parse(rejected.stdout).expedition.surveys.capability.attempts, 3);
@@ -972,6 +1079,8 @@ test("Expedition records must match the published schema", async () => {
     "an approved status without an approved draft": (record) => {
       Object.assign(record, { status: "approved", synthesis: { ...synthesis, staged: { at: synthesis.started_at, digest, capabilities: 1 }, approvals: [{ capability: "cap-apps-web", digest, at: synthesis.started_at }] } });
     },
+    "a survey window without a signature": (record) => { record.surveys.structure.window = { started_at: synthesis.started_at, head_commit: null }; },
+    "a survey window with a malformed time": (record) => { record.surveys.structure.window = { started_at: "soon", head_commit: null, signature: digest }; },
     "a publishing status without a publication": (record) => { Object.assign(record, { status: "publishing", synthesis }); },
     "a finished publication that is not published": (record) => {
       Object.assign(record, { status: "publishing", synthesis, publication: { started_at: synthesis.started_at, plan_digest: digest, completed_at: synthesis.started_at, written: 1, removed: 0 } });

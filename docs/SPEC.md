@@ -150,7 +150,8 @@ automatic migration and requires a newer tool or manual recovery.
    and duplication.
 5. Launch one top-level mapper for each role. Mapper agents must not delegate
    or write a shared report file. Existing generated Navigators must not prime
-   a new survey.
+   a new survey. Reject a report when a product file or HEAD changed while its
+   survey ran.
 6. Store each return in an isolated caller-owned file. Validate its role,
    schema, size, deterministic baseline, paths, glob syntax, confidence, Tool
    Gap shape, admitted Map evidence, and inventory coverage before synthesis.

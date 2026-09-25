@@ -109,7 +109,15 @@ export function validateExpedition(value) {
   requireShape(value.surveys, "surveys", SURVEY_REPORT_ROLES);
   for (const role of SURVEY_REPORT_ROLES) {
     const survey = value.surveys[role];
-    requireShape(survey, `surveys.${role}`, ["role", "status", "report_path", "report_digest", "validated_at", "attempts", "validation_errors"]);
+    requireShape(survey, `surveys.${role}`, ["role", "status", "report_path", "report_digest", "validated_at", "attempts", "validation_errors"], ["window"]);
+    const window = survey.window ?? null;
+    if (window !== null) {
+      requireShape(window, `surveys.${role}.window`, ["started_at", "head_commit", "signature", "proof"]);
+      if (!validTime(window.started_at)) fail(`surveys.${role}.window.started_at must be a timestamp.`);
+      if (!nullableString(window.head_commit)) fail(`surveys.${role}.window.head_commit must be a string or null.`);
+      if (!DIGEST.test(window.signature || "")) fail(`surveys.${role}.window.signature is invalid.`);
+      if (!DIGEST.test(window.proof || "")) fail(`surveys.${role}.window.proof is invalid.`);
+    }
     if (survey.role !== role) fail(`surveys.${role} has the wrong role.`);
     if (!["missing", "invalid", "valid"].includes(survey.status)) fail(`surveys.${role}.status is invalid.`);
     if (survey.report_path !== `${value.draft_root}/surveys/${role}.json`) fail(`surveys.${role}.report_path is not isolated.`);
@@ -194,7 +202,8 @@ export function createExpeditionCheckpoint(root, { map, fingerprints, canonical 
     report_digest: null,
     validated_at: null,
     attempts: 0,
-    validation_errors: []
+    validation_errors: [],
+    window: null
   }]));
   const expedition = {
     schema_version: EXPEDITION_SCHEMA_VERSION,
@@ -230,16 +239,19 @@ export function writeExpedition(root, expedition) {
 export function recordSurveyValidation(root, expedition, role, validation, reportDigest) {
   if (!SURVEY_REPORT_ROLES.includes(role)) throw new Error(`Unknown Expedition survey role: ${role}`);
   const previous = expedition.surveys[role];
-  if (validation.valid && previous.status === "valid" && previous.report_digest === reportDigest) return expedition;
+  // An unchanged re-accept changes nothing, unless it also closes an open window.
+  if (validation.valid && previous.status === "valid" && previous.report_digest === reportDigest && !previous.window) return expedition;
   const now = new Date().toISOString();
   const next = structuredClone(expedition);
+  // Acceptance or rejection closes the survey window. Another run needs a new one.
   next.surveys[role] = {
     ...previous,
     status: validation.valid ? "valid" : "invalid",
     report_digest: reportDigest,
     validated_at: now,
     attempts: previous.attempts + 1,
-    validation_errors: validation.errors || []
+    validation_errors: validation.errors || [],
+    window: null
   };
   next.status = SURVEY_REPORT_ROLES.every((item) => next.surveys[item].status === "valid")
     ? "ready-for-synthesis"
@@ -256,6 +268,19 @@ export function recordSurveyValidation(root, expedition, role, validation, repor
     next.synthesis = null;
     next.events.push({ at: now, type: "synthesis-discarded", role, detail: "A survey report changed after synthesis started." });
   }
+  return writeExpedition(root, next);
+}
+
+// A survey window records the repository state before a survey agent starts,
+// so that acceptance can reject a report whose survey wrote repository files.
+// `proof` binds that state to a token that only the caller holds.
+export function recordSurveyStarted(root, expedition, role, { head_commit: headCommit, signature, proof }) {
+  if (!SURVEY_REPORT_ROLES.includes(role)) throw new Error(`Unknown Expedition survey role: ${role}`);
+  const now = new Date().toISOString();
+  const next = structuredClone(expedition);
+  next.surveys[role] = { ...next.surveys[role], window: { started_at: now, head_commit: headCommit, signature, proof } };
+  next.updated_at = now;
+  next.events.push({ at: now, type: "survey-started", role, detail: "The repository state before the survey is recorded." });
   return writeExpedition(root, next);
 }
 
