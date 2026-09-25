@@ -48,14 +48,19 @@ instructions. Add evidence-backed anomalies for duplicated, contradictory,
 shadowed, oversized, or factually stale instructions. Never rewrite a
 human-owned Instruction Contract. Show a proposed change for approval.
 
-Create:
+Create these in the draft directory:
 
-- Machine-readable current-state Map
-- Human-readable current-state Map
-- Documentation map
-- Architecture anomaly report
+- Machine-readable current-state Map: edit the draft Map in place
+- Human-readable current-state Map for the Map gate. Charthouse generates the
+  published `map.md` from the approved Map.
+- Documentation map as `documentation-map.md`
+- Architecture anomaly report as `anomalies.md`
 - Proposed Navigator assignments
 - Optional Refit findings
+
+Publication copies `documentation-map.md` and `anomalies.md` exactly as they
+are named here. Approval covers both files, so a later change to either one
+needs a new approval.
 
 Resolve survey disagreements by showing evidence and uncertainty. Do not hide
 conflicts. Keep observed state separate from intended state. Every semantic

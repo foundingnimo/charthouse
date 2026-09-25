@@ -7,7 +7,7 @@ const DETAILS = {
   contribute: "Record, preview, dismiss, or mark an upstream Charthouse improvement as submitted.",
   docs: "Show document state, run freshness checks, build review packets for suspect documents, or confirm a reviewed document.",
   doctor: "Validate the Charthouse installation and project state, or safely clear a proven stale local lock.",
-  expedition: "Inspect or resume the current Expedition, accept mapper reports, and stage and approve the draft Map.",
+  expedition: "Inspect or resume the current Expedition, open survey windows, accept mapper reports, and stage and approve the draft Map.",
   help: "Show general help or help for one command.",
   impact: "Rank likely capabilities and Navigators for a proposed change.",
   init: "Pin the user-selected canonical branch, then run the first Expedition.",

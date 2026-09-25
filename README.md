@@ -45,6 +45,9 @@ Charthouse provides:
   interruption-safe resume
 - A staged Map gate: the draft Map and each boundary approval stay in the
   Expedition, and Navigators stay drafts until publication applies them
+- Survey windows that reject a report when its mapper changed product files
+- Recoverable publication with a completion receipt and a guard against
+  partial rescans
 - A project-local Tool Gap Log for recurring operations missing from the Toolbox
 - Document review: Charthouse re-checks a document whose evidence changed
 - Atomic writer locking with owner details and safe stale-lock recovery
@@ -57,6 +60,7 @@ Charthouse provides:
 - A mandatory pre-response gate that stops ambiguous tasks at one concise
   decision question
 - Portable repository skills plus Claude Code agents, hooks, and path rules
+- Sidecar installation, update, and uninstall
 
 Semantic capability mapping, context curation, and Refit proposals are
 performed by the host coding agent through `charthouse-context`. The separate
@@ -134,9 +138,11 @@ supports Claude skills or shared `SKILL.md` files.
    Expedition can take significant time and tokens. It does not edit product
    code. Charthouse checkpoints each accepted survey report. If the session stops,
    a new session uses `charthouse expedition resume` and repeats only reports whose
-   files or structural coverage no longer validate. Edits during the
-   Expedition do not make accepted reports stale by themselves. After synthesis starts, the draft Map
-   and your approvals stay in the Expedition until publication.
+   files or structural coverage no longer validate. Edits after a survey do
+   not make its accepted report stale by themselves. Do not edit product files
+   while a survey runs: Charthouse rejects a report when the repository
+   changed during its survey. After synthesis starts, the draft Map and your
+   approvals stay in the Expedition until publication.
 
 6. After publication, review the generated repository state before committing
    it. Charthouse normally creates `.charthouse/`, `docs/charthouse/`, and `.agents/skills/`;
@@ -354,7 +360,7 @@ Claude uses the plugin name as the command namespace. The plugin name is
 | `check` | `c` | Run a Bearing check |
 | `contribute` | — | Prepare an upstream Charthouse suggestion or pull request |
 | `docs` | `d` | Inspect documentation state |
-| `expedition` | — | Inspect, resume, or checkpoint the first repository survey |
+| `expedition` | — | Run the survey, stage the draft Map, and record approvals |
 | `help` | `h` | Show command help |
 | `impact` | `i` | Predict affected repository areas |
 | `knowledge` | `k` | Inspect or maintain knowledge |
@@ -386,7 +392,8 @@ charthouse tool run survey-report-validate --role capability \
   --file ".charthouse/drafts/<id>/surveys/capability.json" --json
 charthouse expedition start-survey <id> --role capability --json
 charthouse expedition accept-report <id> --role capability \
-  --file ".charthouse/drafts/<id>/surveys/capability.json" --window <token> --json
+  --file ".charthouse/drafts/<id>/surveys/capability.json" \
+  --window <token> --json
 charthouse expedition resume <id> --json
 ```
 
@@ -403,10 +410,10 @@ Map omitted or excluded cannot support a survey claim. `expedition
 accept-report` validates the same contract and records the report digest as a
 durable checkpoint. It also rejects a report whose survey changed a product
 file or HEAD after `expedition start-survey` opened its window. The window
-token stays with the caller, so a survey agent cannot reopen its own window. Each
-top-level mapper gets an isolated report file and cannot delegate. `expedition
-resume` re-checks accepted digests and reports only the roles that must run
-again. Synthesis stops unless the structure, capability, documentation, and
+token stays with the caller, so a survey agent cannot reopen its own window.
+Each top-level mapper gets an isolated report file and cannot delegate.
+`expedition resume` re-checks accepted digests and reports only the roles that
+must run again. Synthesis stops unless the structure, capability, documentation, and
 duplication reports all pass.
 
 When an agent must use a system utility, temporary script, or manual fallback,
