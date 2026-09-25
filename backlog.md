@@ -33,7 +33,8 @@ Status values:
   changes only file contents. Accepted reports are checked against the
   current Map structure, not its generation time or commit.
 - [ ] Publish approved Expedition artifacts through a recoverable atomic
-  publisher with a recorded completion receipt.
+  publisher with a recorded completion receipt. Refuse to replace a published
+  result with a partial one, such as a rescan that lost units or most files.
 
 ### Consistent multi-session reads
 
@@ -92,6 +93,19 @@ its current form without reading the original session.
   session handoffs, Map-learning metrics, and recurring Tool Gap detection.
 - [ ] Define safe attribution for pre-existing dirty changes, concurrent
   sessions, worktrees, and material work performed without an active Voyage.
+- [ ] Use `WHY:` comments near changed code as candidate rationale input. Treat
+  each one as an agent claim and verify it like any other explanation.
+
+### Code-level evidence
+
+Goal: Give `impact`, `brief`, and document watches evidence from the code
+itself instead of word matching.
+
+- [ ] Build a deterministic file-level import graph, starting with JavaScript
+  and TypeScript. Walk reverse dependencies so that `impact` and `brief` can
+  show which capabilities a change reaches.
+- [ ] Link code references in documents to the symbols that they name, so that
+  `docs review` packets and watches can target one symbol instead of a folder.
 
 ### Learn from completed Voyages
 
