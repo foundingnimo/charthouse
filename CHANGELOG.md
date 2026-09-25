@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `tool gap record --expedition` rejects an Expedition id that does not exist.
+- `tool gap record` rejects a Voyage or Expedition id that does not exist.
 
 ## 0.1.0 (2026-09-25)
 

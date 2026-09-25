@@ -31,6 +31,10 @@ function readLog() {
   return JSON.parse(readFileSync(join(sandbox, ".charthouse/tool-gaps.json"), "utf8"));
 }
 
+function startVoyage() {
+  return JSON.parse(ok("run", "Record a Tool Gap", "--root", sandbox, "--json").stdout).voyage.id;
+}
+
 function record(voyage, reporter, checked = "dependency-graph", overrides = {}) {
   const values = {
     key: "dependency-cycle-detection",
@@ -78,28 +82,29 @@ test("init creates an empty Tool Gap Log", () => {
 });
 
 test("recurring reports become a candidate without retry inflation", () => {
-  let result = record("V-0012", "charthouse-structure-mapper");
+  const [first, second] = [startVoyage(), startVoyage()];
+  let result = record(first, "charthouse-structure-mapper");
   assert.equal(result.status, 0, result.stderr);
   let payload = JSON.parse(result.stdout);
   assert.equal(payload.outcome, "created");
   assert.equal(payload.gap.id, "TG-0001");
   assert.equal(payload.gap.status, "observed");
 
-  result = record("V-0012", "charthouse-structure-mapper");
+  result = record(first, "charthouse-structure-mapper");
   assert.equal(result.status, 0, result.stderr);
   payload = JSON.parse(result.stdout);
   assert.equal(payload.recorded, false);
   assert.equal(payload.outcome, "duplicate");
   assert.equal(payload.gap.occurrences, 1);
 
-  assert.equal(record("V-0012", "charthouse-capability-mapper").status, 0);
-  result = record("V-0017", "charthouse-structure-mapper");
+  assert.equal(record(first, "charthouse-capability-mapper").status, 0);
+  result = record(second, "charthouse-structure-mapper");
   assert.equal(result.status, 0, result.stderr);
   payload = JSON.parse(result.stdout);
   assert.equal(payload.outcome, "promoted");
   assert.equal(payload.gap.status, "candidate");
   assert.equal(payload.gap.occurrences, 3);
-  assert.deepEqual(payload.gap.voyages, ["V-0012", "V-0017"]);
+  assert.deepEqual(payload.gap.voyages, [first, second]);
 
   const candidates = JSON.parse(ok("tool", "gap", "list", "--status", "candidate", "--root", sandbox, "--json").stdout);
   assert.deepEqual(candidates.map((gap) => gap.id), ["TG-0001"]);
@@ -177,13 +182,20 @@ test("Tool Gap recording requires exactly one Voyage or Expedition context", () 
   const malformed = run(...base, "--expedition", "expedition-one", "--root", sandbox);
   assert.equal(malformed.status, 1);
   assert.match(malformed.stderr, /E-0001 form/);
+  const unknownVoyage = run(...base, "--voyage", "V-0099", "--root", sandbox);
+  assert.equal(unknownVoyage.status, 1);
+  assert.match(unknownVoyage.stderr, /Unknown Voyage: V-0099/);
+  const malformedVoyage = run(...base, "--voyage", "voyage-one", "--root", sandbox);
+  assert.equal(malformedVoyage.status, 1);
+  assert.match(malformedVoyage.stderr, /Invalid Voyage ID: voyage-one/);
   assert.deepEqual(readLog().gaps, []);
 });
 
 test("a Tool Gap exports, resolves, reopens, and dismisses safely", () => {
-  assert.equal(record("V-0012", "charthouse-structure-mapper").status, 0);
-  assert.equal(record("V-0012", "charthouse-capability-mapper").status, 0);
-  assert.equal(record("V-0017", "charthouse-structure-mapper").status, 0);
+  const [first, second, third, fourth] = [startVoyage(), startVoyage(), startVoyage(), startVoyage()];
+  assert.equal(record(first, "charthouse-structure-mapper").status, 0);
+  assert.equal(record(first, "charthouse-capability-mapper").status, 0);
+  assert.equal(record(second, "charthouse-structure-mapper").status, 0);
 
   const exported = JSON.parse(ok("tool", "gap", "export", "TG-0001", "--root", sandbox, "--json").stdout);
   assert.match(exported.body, /# Toolbox candidate: dependency-cycle-detection/);
@@ -194,11 +206,11 @@ test("a Tool Gap exports, resolves, reopens, and dismisses safely", () => {
   assert.equal(resolved.status, "resolved");
   assert.deepEqual(resolved.resolved_by.tool, "dependency-graph");
 
-  let result = record("V-0020", "charthouse-duplication-mapper", "none");
+  let result = record(third, "charthouse-duplication-mapper", "none");
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Check that tool before recording the gap again/);
 
-  result = record("V-0020", "charthouse-duplication-mapper", "dependency-graph");
+  result = record(third, "charthouse-duplication-mapper", "dependency-graph");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).outcome, "reopened");
   assert.equal(JSON.parse(result.stdout).gap.status, "candidate");
@@ -206,7 +218,7 @@ test("a Tool Gap exports, resolves, reopens, and dismisses safely", () => {
   const dismissed = JSON.parse(ok("tool", "gap", "dismiss", "TG-0001", "--reason", "This operation is repository-specific.", "--root", sandbox, "--json").stdout);
   assert.equal(dismissed.status, "dismissed");
   const before = dismissed.occurrences;
-  result = record("V-0021", "charthouse-structure-mapper");
+  result = record(fourth, "charthouse-structure-mapper");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).outcome, "dismissed");
   assert.equal(readLog().gaps[0].occurrences, before);
@@ -214,20 +226,21 @@ test("a Tool Gap exports, resolves, reopens, and dismisses safely", () => {
 });
 
 test("Tool Gap recording rejects unsafe or invalid reports", () => {
-  let result = record("V-0012", "charthouse-structure-mapper", "unknown-tool");
+  const [first, second] = [startVoyage(), startVoyage()];
+  let result = record(first, "charthouse-structure-mapper", "unknown-tool");
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Unknown registered tool/);
 
-  result = record("V-0012", "charthouse-structure-mapper", "none", { need: "Inspect /Users/example/private.txt." });
+  result = record(first, "charthouse-structure-mapper", "none", { need: "Inspect /Users/example/private.txt." });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /must not contain an absolute path/);
 
-  result = record("V-0012", "charthouse-structure-mapper", "none", { fallback: "downloaded-script" });
+  result = record(first, "charthouse-structure-mapper", "none", { fallback: "downloaded-script" });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /--fallback must be one of/);
 
-  assert.equal(record("V-0012", "charthouse-structure-mapper", "none").status, 0);
-  result = record("V-0017", "charthouse-capability-mapper", "none", { summary: "Used ~/private-helper.js." });
+  assert.equal(record(first, "charthouse-structure-mapper", "none").status, 0);
+  result = record(second, "charthouse-capability-mapper", "none", { summary: "Used ~/private-helper.js." });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /must not contain an absolute path/);
   assert.equal(readLog().gaps[0].occurrences, 1);
@@ -236,7 +249,7 @@ test("Tool Gap recording rejects unsafe or invalid reports", () => {
 test("an existing Charthouse project creates a missing Log on first record", () => {
   rmSync(join(sandbox, ".charthouse/tool-gaps.json"));
   assert.deepEqual(JSON.parse(ok("tool", "gaps", "--root", sandbox, "--json").stdout), []);
-  const result = record("V-0001", "charthouse");
+  const result = record(startVoyage(), "charthouse");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(existsSync(join(sandbox, ".charthouse/tool-gaps.json")), true);
   assert.equal(readLog().gaps[0].id, "TG-0001");

@@ -6,6 +6,7 @@ import { withProjectLock } from "./lock.mjs";
 export const TOOL_GAP_CANDIDATE_OCCURRENCES = 3;
 export const TOOL_GAP_CANDIDATE_VOYAGES = 2;
 
+const VOYAGE_ID = /^V-\d{4,}$/;
 const STATUSES = new Set(["observed", "candidate", "dismissed", "resolved"]);
 const FALLBACK_KINDS = new Set(["system-utility", "temporary-script", "manual"]);
 const STATUS_ORDER = { candidate: 0, observed: 1, resolved: 2, dismissed: 3 };
@@ -188,6 +189,8 @@ function recordToolGapUnlocked(root, input, registeredTools = []) {
   const expedition = input.expedition ? identifier(input.expedition, "--expedition") : null;
   if (Boolean(voyage) === Boolean(expedition)) throw new Error("Tool Gap recording requires exactly one Voyage or Expedition context.");
   if (expedition && !exists(expeditionRecordPath(root, expedition))) throw new Error(`Unknown Expedition: ${expedition}`);
+  if (voyage && !VOYAGE_ID.test(voyage)) throw new Error(`Invalid Voyage ID: ${voyage}`);
+  if (voyage && !exists(repoPath(root, `${PATHS.voyages}/${voyage}.json`))) throw new Error(`Unknown Voyage: ${voyage}`);
   const context = voyage || expedition;
   const reporter = identifier(input.reporter || "charthouse", "--reporter");
   const report = {
