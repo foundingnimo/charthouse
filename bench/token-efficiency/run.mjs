@@ -90,7 +90,8 @@ function prepare(values) {
     sh("git", ["clone", "--quiet", repo, p.clone(condition)], { cwd: work });
     git(p.clone(condition), "checkout", "--quiet", "-B", BRANCH, ref);
     mkdirSync(p.config(condition), { recursive: true });
-    writeFileSync(join(p.config(condition), "settings.json"), "{}\n");
+    // A login made before prepare keeps its settings; the installer adds hooks to them.
+    if (!existsSync(join(p.config(condition), "settings.json"))) writeFileSync(join(p.config(condition), "settings.json"), "{}\n");
   }
   const commit = git(p.clone("base"), "rev-parse", "HEAD").stdout.trim();
   // The Charthouse environment gets the sidecar skills and lifecycle hooks, and nothing else.
