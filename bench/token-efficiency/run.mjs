@@ -165,10 +165,13 @@ function setup(values) {
     ].join("\n"));
     return;
   }
+  // The command skill is user-invoked only, so the prompt must start with the
+  // slash command for Claude Code to expand it.
   const prompt = [
-    `Run /charthouse init with canonical branch ${BRANCH} and complete the whole first Expedition in this repository.`,
-    "This is an automated benchmark with no human at the Map gate: the operator approves every proposed capability boundary as proposed.",
-    "Record that approval with `charthouse expedition approve <id> --all`, publish with `charthouse navigator regenerate all`, and do not ask questions."
+    `/charthouse init --canonical-ref ${BRANCH}`,
+    "Complete the whole first Expedition in this repository. This is an automated benchmark with no human at the Map gate:",
+    "the operator approves every proposed capability boundary as proposed. Record that approval with",
+    "`charthouse expedition approve <id> --all`, publish with `charthouse navigator regenerate all`, and do not ask questions."
   ].join(" ");
   const run = claude("charthouse", work, prompt, { model: values.model || "sonnet", maxTurns: Number(values["max-turns"] || 200), budget: values.budget, timeoutMinutes: Number(values["timeout-minutes"] || 90) });
   if (!run.json) fail(`The setup session printed no result JSON.\n${run.stderr}`);
