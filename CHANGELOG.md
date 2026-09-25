@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-09-25)
+
 - `expedition start-survey` opens a survey window before a mapper runs and
   returns a token that the caller keeps. `accept-report --window <token>`
   rejects a report when a product file or HEAD changed during its survey, or

@@ -1,6 +1,6 @@
 {
   "name": "@foundingnimo/charthouse",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Ambient repository cartography and durable context for coding agents",
   "type": "module",
   "license": "MIT",
