@@ -114,3 +114,7 @@ large repository shows more than a small one.
   runs of the whole task suite repay it.
 - Hooks also take wall time without tokens. The report shows turns and cost;
   `results.jsonl` also holds the wall time.
+- Turns count only the main agent. A session that delegates the task to a
+  subagent can show one turn. Its cost and tokens still include the subagent.
+- Ask questions that have one right answer. A question whose answer spans two
+  files lets a correct but partial answer fail its check.

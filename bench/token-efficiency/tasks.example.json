@@ -2,7 +2,7 @@
   {
     "id": "orient-survey-windows",
     "kind": "orientation",
-    "prompt": "Which source file implements Expedition survey windows, and which CLI command opens a window? Answer in two sentences with repository-relative paths. Do not change any file.",
+    "prompt": "Which source file defines the function that opens an Expedition survey window, and which CLI command calls it? Answer in two sentences with repository-relative paths. Do not change any file.",
     "check": { "answer_includes": ["scripts/lib/expeditions.mjs", "start-survey"] }
   },
   {

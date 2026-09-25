@@ -84,7 +84,7 @@ export function renderReport(summary) {
     "",
     "Medians per task. Change is Charthouse relative to the plain session; negative is cheaper.",
     "",
-    "| Task | Runs | Success (plain / Charthouse) | Cost (plain / Charthouse) | Cost change | Tokens (plain / Charthouse) | Token change | Turns (plain / Charthouse) |",
+    "| Task | Runs | Success (plain / Charthouse) | Cost (plain / Charthouse) | Cost change | Tokens (plain / Charthouse) | Token change | Main-agent turns (plain / Charthouse) |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |"
   ];
   for (const row of summary.tasks) {
@@ -96,7 +96,8 @@ export function renderReport(summary) {
     `Whole suite: ${dollars(suite.base_cost_usd)} plain, ${dollars(suite.charthouse_cost_usd)} with Charthouse (${percent(suite.cost_change)}).`,
     `First Expedition: ${dollars(suite.setup_cost_usd)}. Break-even: ${suite.break_even_suites === null ? "not reached" : `${suite.break_even_suites.toFixed(1)} suite runs`}.`,
     "",
-    "Compare cost only where both conditions succeed at a similar rate. A cheaper run that fails the task is not a saving."
+    "Compare cost only where both conditions succeed at a similar rate. A cheaper run that fails the task is not a saving.",
+    "Turns count only the main agent. A session that delegates to a subagent can show one turn; its cost still includes the subagent."
   );
   return `${lines.join("\n")}\n`;
 }
