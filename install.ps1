@@ -1,6 +1,7 @@
 param(
   [switch]$NoHooks,
   [switch]$Update,
+  [switch]$Uninstall,
   [switch]$Yes,
   [Alias("Host")][ValidateSet("claude", "shared", "all")][string]$TargetHost = "all"
 )
@@ -21,6 +22,16 @@ $NodeVersion = (& node -p "process.versions.node").Trim()
 $NodeMajor = [int]($NodeVersion.Split('.')[0])
 if ($NodeMajor -lt 22) {
   throw "Charthouse requires Node.js 22 or newer; found v$NodeVersion."
+}
+
+if ($Uninstall) {
+  if ($Update -or $NoHooks -or $PSBoundParameters.ContainsKey("TargetHost")) {
+    throw "-Uninstall removes every adapter. Do not combine it with -Update, -TargetHost or -NoHooks."
+  }
+  $UninstallArguments = @()
+  if ($Yes) { $UninstallArguments += "--yes" }
+  & node (Join-Path $CharthouseSourceDir "scripts\uninstall.mjs") @UninstallArguments
+  exit $LASTEXITCODE
 }
 
 $CharthouseRuntimeDir = [IO.Path]::GetFullPath($CharthouseRuntimeDir)

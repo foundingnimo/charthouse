@@ -19,24 +19,30 @@ if [ "${CHARTHOUSE_NODE_MAJOR}" -lt 22 ]; then
 fi
 
 CHARTHOUSE_MODE=install
+CHARTHOUSE_UNINSTALL=no
 CHARTHOUSE_HOST=all
+CHARTHOUSE_HOST_SET=no
 CHARTHOUSE_HOOKS=yes
 CHARTHOUSE_ASSUME_YES=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --update) CHARTHOUSE_MODE=update ;;
+    --uninstall) CHARTHOUSE_UNINSTALL=yes ;;
     --host)
       shift
       [ "$#" -gt 0 ] || { echo "--host requires claude, shared or all."; exit 1; }
-      CHARTHOUSE_HOST=$1 ;;
+      CHARTHOUSE_HOST=$1
+      CHARTHOUSE_HOST_SET=yes ;;
     --no-hooks) CHARTHOUSE_HOOKS=no ;;
     --yes|-y) CHARTHOUSE_ASSUME_YES=yes ;;
     --help|-h)
       echo "Usage: ./install.sh [--update] [--host claude|shared|all] [--no-hooks] [--yes]"
-      echo "  --update    Replace an existing installation from this checkout."
-      echo "  --host      Install Claude adapters, shared agent adapters, or both (default: all)."
-      echo "  --no-hooks  Do not add or refresh Claude lifecycle hooks."
-      echo "  --yes       Answer yes to the update prompt."
+      echo "       ./install.sh --uninstall [--yes]"
+      echo "  --update     Replace an existing installation from this checkout."
+      echo "  --host       Install Claude adapters, shared agent adapters, or both (default: all)."
+      echo "  --no-hooks   Do not add or refresh Claude lifecycle hooks."
+      echo "  --uninstall  Remove the runtime, skills, and Claude hooks. Repositories keep their state."
+      echo "  --yes        Answer yes to the update or uninstall prompt."
       exit 0 ;;
     *) echo "Unknown option: $1. Use --help for supported options."; exit 1 ;;
   esac
@@ -47,6 +53,17 @@ case "${CHARTHOUSE_HOST}" in
   claude|shared|all) ;;
   *) echo "Unknown host: ${CHARTHOUSE_HOST}. Use claude, shared or all."; exit 1 ;;
 esac
+
+if [ "${CHARTHOUSE_UNINSTALL}" = yes ]; then
+  if [ "${CHARTHOUSE_MODE}" = update ] || [ "${CHARTHOUSE_HOST_SET}" = yes ] || [ "${CHARTHOUSE_HOOKS}" = no ]; then
+    echo "--uninstall removes every adapter. Do not combine it with --update, --host or --no-hooks."
+    exit 1
+  fi
+  if [ "${CHARTHOUSE_ASSUME_YES}" = yes ]; then
+    exec node "${CHARTHOUSE_SOURCE_DIR}/scripts/uninstall.mjs" --yes
+  fi
+  exec node "${CHARTHOUSE_SOURCE_DIR}/scripts/uninstall.mjs"
+fi
 
 charthouse_absolute_path() {
   node -e 'process.stdout.write(require("path").resolve(process.argv[1]))' "$1"

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -252,6 +252,123 @@ test("doctor accepts Claude hooks from a custom neutral runtime path", () => {
     const adapters = JSON.parse(diagnosis.stdout).adapters;
     assert.equal(adapters.runtime.mode, "standalone-neutral");
     assert.equal(adapters.claude.hooks.current, true);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+function uninstallEnv(sandbox, runtime = join(sandbox, ".charthouse")) {
+  return { ...process.env, HOME: sandbox, CHARTHOUSE_HOME: runtime, CLAUDE_CONFIG_DIR: join(sandbox, ".claude"), AGENT_SKILLS_DIR: join(sandbox, ".agents/skills") };
+}
+
+test("install.sh --uninstall removes the runtime, skills, and hooks and keeps everything else", () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "charthouse-uninstall-"));
+  try {
+    const env = uninstallEnv(sandbox);
+    const runtime = env.CHARTHOUSE_HOME;
+    const claude = env.CLAUDE_CONFIG_DIR;
+    const shared = env.AGENT_SKILLS_DIR;
+    const settingsPath = join(claude, "settings.json");
+    mkdirSync(claude, { recursive: true });
+    writeFileSync(settingsPath, `${JSON.stringify({ model: "sonnet", hooks: { Stop: [{ hooks: [{ type: "command", command: "existing-command" }] }] } }, null, 2)}\n`);
+    const install = spawnSync("sh", [join(packageRoot, "install.sh")], { encoding: "utf8", env });
+    assert.equal(install.status, 0, install.stdout + install.stderr);
+    mkdirSync(join(shared, "other-skill"));
+    mkdirSync(join(sandbox, ".charthouse.install-4242/bin"), { recursive: true });
+    writeFileSync(join(sandbox, ".charthouse.install-4242/bin/charthouse"), "");
+    mkdirSync(join(sandbox, ".charthouse.previous-7"));
+    const uninstall = (...args) => spawnSync("sh", [join(packageRoot, "install.sh"), "--uninstall", ...args], { encoding: "utf8", env, input: "" });
+
+    const conflict = uninstall("--update");
+    assert.equal(conflict.status, 1);
+    assert.match(conflict.stdout + conflict.stderr, /--uninstall/);
+
+    // stdin is a pipe here, so the uninstaller cannot ask. It lists the removal and refuses.
+    const refused = uninstall();
+    assert.equal(refused.status, 1);
+    assert.ok(refused.stdout.includes(runtime), refused.stdout);
+    assert.ok(refused.stdout.includes(join(shared, "charthouse-context")), refused.stdout);
+    assert.match(refused.stdout, /--yes/);
+    assert.equal(existsSync(join(runtime, "bin/charthouse")), true);
+
+    const removed = uninstall("--yes");
+    assert.equal(removed.status, 0, removed.stdout + removed.stderr);
+    assert.match(removed.stdout, /Restart open coding-agent sessions/);
+    for (const path of [runtime, join(sandbox, ".charthouse.install-4242")]) assert.equal(existsSync(path), false, path);
+    for (const directory of [join(claude, "skills"), shared]) {
+      for (const name of ["charthouse", "charthouse-context"]) assert.equal(existsSync(join(directory, name)), false, join(directory, name));
+    }
+    assert.equal(existsSync(join(shared, "other-skill")), true);
+    // A folder with a staging name but no runtime inside is not Charthouse's to remove.
+    assert.equal(existsSync(join(sandbox, ".charthouse.previous-7")), true);
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    assert.deepEqual(settings, { model: "sonnet", hooks: { Stop: [{ hooks: [{ type: "command", command: "existing-command" }] }] } });
+    const backups = readdirSync(claude).filter((name) => name.startsWith("settings.json.charthouse-backup-"));
+    assert.ok(backups.some((name) => removed.stdout.includes(name)), removed.stdout);
+
+    const again = uninstall("--yes");
+    assert.equal(again.status, 0, again.stdout + again.stderr);
+    assert.match(again.stdout, /Charthouse is not installed\. Nothing changed\./);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("the installed runtime can uninstall itself without the source checkout", () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "charthouse-self-uninstall-"));
+  try {
+    const env = uninstallEnv(sandbox);
+    const install = spawnSync("sh", [join(packageRoot, "install.sh"), "--host", "shared", "--no-hooks"], { encoding: "utf8", env });
+    assert.equal(install.status, 0, install.stdout + install.stderr);
+    const result = spawnSync(process.execPath, [join(env.CHARTHOUSE_HOME, "scripts/uninstall.mjs"), "--yes"], { encoding: "utf8", env, input: "" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(existsSync(env.CHARTHOUSE_HOME), false);
+    assert.equal(existsSync(join(env.AGENT_SKILLS_DIR, "charthouse")), false);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("uninstall refuses unsafe or unrecognized targets before changing anything", () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "charthouse-uninstall-unsafe-"));
+  try {
+    const skill = join(sandbox, ".claude/skills/charthouse");
+    mkdirSync(skill, { recursive: true });
+    writeFileSync(join(skill, "SKILL.md"), "---\nname: charthouse\n---\n");
+    const uninstall = (env) => spawnSync("sh", [join(packageRoot, "install.sh"), "--uninstall", "--yes"], { encoding: "utf8", env, input: "" });
+
+    const home = uninstall(uninstallEnv(sandbox, sandbox));
+    assert.equal(home.status, 1);
+    assert.match(home.stderr, /Unsafe CHARTHOUSE_HOME/);
+
+    const documents = join(sandbox, "Documents");
+    mkdirSync(documents);
+    writeFileSync(join(documents, "keep.txt"), "keep\n");
+    const unknown = uninstall(uninstallEnv(sandbox, documents));
+    assert.equal(unknown.status, 1);
+    assert.match(unknown.stderr, /is not a Charthouse runtime/);
+
+    // A source checkout carries the package name but also Git metadata.
+    const checkout = join(sandbox, "charthouse-checkout");
+    mkdirSync(join(checkout, ".git"), { recursive: true });
+    mkdirSync(join(checkout, "bin"));
+    writeFileSync(join(checkout, "bin/charthouse"), "");
+    writeFileSync(join(checkout, "package.json"), `${JSON.stringify({ name: "@foundingnimo/charthouse" })}\n`);
+    writeFileSync(join(checkout, ".install.json"), "{}\n");
+    const source = uninstall(uninstallEnv(sandbox, checkout));
+    assert.equal(source.status, 1);
+    assert.match(source.stderr, /is not a Charthouse runtime/);
+
+    const claude = join(sandbox, ".claude");
+    writeFileSync(join(claude, "settings.json"), "{ broken\n");
+    const broken = uninstall(uninstallEnv(sandbox));
+    assert.equal(broken.status, 1);
+    assert.match(broken.stderr, /settings\.json/);
+
+    assert.equal(readFileSync(join(documents, "keep.txt"), "utf8"), "keep\n");
+    assert.equal(existsSync(join(checkout, "package.json")), true);
+    assert.equal(existsSync(join(skill, "SKILL.md")), true);
+    assert.equal(readFileSync(join(claude, "settings.json"), "utf8"), "{ broken\n");
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }

@@ -43,6 +43,8 @@ const required = [
   "scripts/lib/brief.mjs",
   "scripts/lib/adapters.mjs",
   "scripts/install-standalone-hooks.mjs",
+  "scripts/uninstall.mjs",
+  "scripts/lib/claude-settings.mjs",
   "schemas/map.schema.json",
   "schemas/manifest.schema.json",
   "schemas/fingerprints.schema.json",

@@ -240,6 +240,28 @@ uses a `<commit>-dirty` revision label. Its `.install.json` stamp records
 checks the runtime, selected skill adapters, Claude hooks, project lock, and
 any required repository-state migration.
 
+### Uninstall
+
+To remove a sidecar installation, run this from the Charthouse checkout:
+
+```bash
+./install.sh --uninstall
+```
+
+On PowerShell, use `./install.ps1 -Uninstall`. The uninstaller shows each item
+that it will remove and asks before it continues. Add `--yes` (`-Yes`) to skip
+the question. It removes the runtime, both skills from each skill directory,
+the Charthouse hooks in `~/.claude/settings.json`, and staging folders from an
+interrupted install. It keeps unrelated settings and writes a settings backup.
+It stops and changes nothing if the runtime folder does not contain an
+installed Charthouse runtime.
+
+The uninstaller does not change repositories. Each repository keeps its
+`.charthouse/`, `docs/charthouse/`, and `.claude/` files until you remove them.
+
+If you deleted the checkout, run the copy in the runtime:
+`node ~/.charthouse/scripts/uninstall.mjs`.
+
 ### Contribute back
 
 Tell Charthouse an idea in normal language or run:
