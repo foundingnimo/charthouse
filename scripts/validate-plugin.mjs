@@ -40,6 +40,7 @@ const required = [
   "scripts/lib/voyages.mjs",
   "scripts/lib/expedition-state.mjs",
   "scripts/lib/expeditions.mjs",
+  "scripts/lib/publication.mjs",
   "scripts/lib/brief.mjs",
   "scripts/lib/adapters.mjs",
   "scripts/install-standalone-hooks.mjs",

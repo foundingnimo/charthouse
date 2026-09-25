@@ -69,6 +69,9 @@
     "synthesis": {
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/synthesis" }]
     },
+    "publication": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/publication" }]
+    },
     "events": {
       "type": "array",
       "items": {
@@ -86,6 +89,18 @@
   },
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "plan_digest", "completed_at", "written", "removed"],
+      "properties": {
+        "started_at": { "type": "string", "format": "date-time" },
+        "plan_digest": { "$ref": "#/$defs/digest" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "written": { "type": "integer", "minimum": 0 },
+        "removed": { "type": "integer", "minimum": 0 }
+      }
+    },
     "synthesis": {
       "type": "object",
       "additionalProperties": false,

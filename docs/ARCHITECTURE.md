@@ -143,7 +143,14 @@ report, requires unchanged synthesis inputs and an unchanged staged draft,
 requires an approval for each boundary in the draft, and rescans the
 repository. It merges the approved draft into the rescan. It writes nothing
 when the rescan finds a boundary that no approved capability covers, such as a
-package added after approval.
+package added after approval, or when the rescan lost a unit or most files.
+
+Publication is recoverable. The publisher stages each generated file and a
+plan in the Expedition draft root, records the Expedition as `publishing`, and
+then applies the plan. The Map is written last. Each step is idempotent, so a
+publication that stops finishes on the next writer without a new decision.
+Every writer of generated state finishes a pending publication first. A
+receipt records the finished result.
 
 ### Generated views
 

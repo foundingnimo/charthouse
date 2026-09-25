@@ -6,6 +6,7 @@ import { gitChangedPaths } from "./lib/git.mjs";
 import { checkRepository } from "./lib/check.mjs";
 import { isInitialized, reconcile } from "./lib/state.mjs";
 import { withProjectLock } from "./lib/lock.mjs";
+import { finishPendingPublication } from "./lib/publication.mjs";
 import { summarizeVoyages } from "./lib/voyages.mjs";
 
 function readInput() {
@@ -19,6 +20,8 @@ function readInput() {
 
 function savePaths(root, additions) {
   return withProjectLock(root, "update changed-path queue", () => {
+    // A pending publication replaces this queue, so finish it before adding to it.
+    finishPendingPublication(root);
     const statePath = repoPath(root, PATHS.changes);
     let current = { schema_version: 1, paths: [] };
     try { current = readJson(statePath); } catch {}

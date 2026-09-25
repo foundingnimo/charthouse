@@ -389,6 +389,129 @@ test("a synthesis restart keeps the earlier draft for reuse", () => {
   assert.deepEqual(JSON.parse(readFileSync(join(sandbox, draftPath), "utf8")), readMap());
 });
 
+function blockPublishedFile(path) {
+  // A folder where a generated file must go makes the write fail midway.
+  mkdirSync(join(sandbox, path, "obstacle"), { recursive: true });
+  writeFileSync(join(sandbox, path, "obstacle/keep.txt"), "keep\n");
+}
+
+test("an interrupted publication finishes on the next writer without new approval", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveExpeditionMap(sandbox, run);
+  const canonical = readFileSync(join(sandbox, ".charthouse/map.json"), "utf8");
+  const blocked = ".claude/rules/charthouse/packages-auth.md";
+  blockPublishedFile(blocked);
+
+  const failed = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(failed.status, 1);
+  assert.match(failed.stderr, /Publication of E-0001 stopped/);
+  assert.match(failed.stderr, /navigator regenerate all/);
+  // Some views were written, but the Map is written last and is unchanged.
+  assert.ok(existsSync(join(sandbox, "docs/charthouse/navigators/apps-web.md")));
+  assert.equal(readFileSync(join(sandbox, ".charthouse/map.json"), "utf8"), canonical);
+  const pending = expeditionJson("resume", "E-0001");
+  assert.equal(pending.status, "publishing");
+  assert.match(pending.next[0], /Publication of E-0001 was interrupted/);
+  for (const args of [["stage", "E-0001"], ["synthesize", "E-0001", "--restart"], ["approve", "E-0001", "--all"]]) {
+    const refused = run("expedition", ...args, "--root", sandbox);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /E-0001 is publishing/);
+  }
+
+  rmSync(join(sandbox, blocked), { recursive: true, force: true });
+  const reconciled = run("reconcile", "--root", sandbox, "--json");
+  assert.equal(reconciled.status, 0, reconciled.stderr);
+  const record = JSON.parse(readFileSync(join(sandbox, ".charthouse/expeditions/E-0001.json"), "utf8"));
+  assert.equal(record.status, "published");
+  assert.equal(record.publication.completed_at !== null, true);
+  assert.ok(record.publication.written > 0);
+  assert.ok(existsSync(join(sandbox, ".charthouse/drafts/E-0001/publication/receipt.json")));
+  assert.ok(existsSync(join(sandbox, blocked)));
+  assert.ok(readMap().capabilities.every((item) => item.approved === true));
+});
+
+test("the edit hook finishes a pending publication before it queues a path", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveExpeditionMap(sandbox, run);
+  const blocked = ".claude/rules/charthouse/packages-auth.md";
+  blockPublishedFile(blocked);
+  assert.equal(run("navigator", "regenerate", "all", "--root", sandbox).status, 1);
+  const target = join(sandbox, "packages/auth/src/token.ts");
+  const edited = () => spawnSync(process.execPath, [bin, "hook", "changed", "--root", sandbox], {
+    cwd: sandbox,
+    encoding: "utf8",
+    input: JSON.stringify({ tool_input: { file_path: target } })
+  });
+
+  // While the publication cannot finish, the hook reports it and queues nothing
+  // that the recovery would overwrite.
+  const stuck = edited();
+  assert.equal(stuck.status, 1);
+  assert.match(stuck.stderr, /Publication of E-0001 stopped/);
+
+  rmSync(join(sandbox, blocked), { recursive: true, force: true });
+  const queued = edited();
+  assert.equal(queued.status, 0, queued.stderr);
+  assert.equal(expeditionJson("status").status, "published");
+  const queue = JSON.parse(readFileSync(join(sandbox, ".charthouse/changed-paths.json"), "utf8"));
+  assert.deepEqual(queue.paths, ["packages/auth/src/token.ts"]);
+});
+
+test("recovery refuses a staged publication file that changed", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveExpeditionMap(sandbox, run);
+  const blocked = ".claude/rules/charthouse/packages-auth.md";
+  blockPublishedFile(blocked);
+  assert.equal(run("navigator", "regenerate", "all", "--root", sandbox).status, 1);
+  const staged = join(sandbox, ".charthouse/drafts/E-0001/publication/staged/.charthouse/map.json");
+  writeFileSync(staged, readFileSync(staged, "utf8").replace("human-approved", "semantic"));
+  rmSync(join(sandbox, blocked), { recursive: true, force: true });
+  const refused = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /staged publication file changed: .*staged\/\.charthouse\/map\.json/);
+  assert.equal(expeditionJson("status").status, "publishing");
+});
+
+test("publication refuses to replace the Map with a partial rescan", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  approveExpeditionMap(sandbox, run);
+  const canonical = readFileSync(join(sandbox, ".charthouse/map.json"), "utf8");
+  for (const path of ["README.md", "packages/auth/src/token.ts", "apps/web/src/index.ts", "apps/web/src/index.test.ts", "apps/web/fixtures/account.json"]) {
+    rmSync(join(sandbox, path));
+  }
+  const fewer = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(fewer.status, 1);
+  assert.match(fewer.stderr, /fewer than half of the 8 files/);
+  assert.match(fewer.stderr, /expedition synthesize E-0001 --restart/);
+  assert.equal(git("checkout", "--", ".").status, 0);
+
+  rmSync(join(sandbox, "packages/auth"), { recursive: true });
+  const lost = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(lost.status, 1);
+  assert.match(lost.stderr, /lost a unit that the approved Map describes: unit-packages-auth/);
+  assert.equal(readFileSync(join(sandbox, ".charthouse/map.json"), "utf8"), canonical);
+  assert.equal(expeditionJson("status").status, "approved");
+});
+
+test("publication copies the approved draft documents", () => {
+  assert.equal(run("init", "--root", sandbox).status, 0);
+  const synthesis = ".charthouse/drafts/E-0001/synthesis";
+  approveExpeditionMap(sandbox, run, () => {
+    writeFileSync(join(sandbox, synthesis, "documentation-map.md"), "# Documentation map\n\nREADME.md is the entry point.\n");
+    writeFileSync(join(sandbox, synthesis, "anomalies.md"), "# Anomalies\n\nNone found.\n");
+  });
+  writeFileSync(join(sandbox, synthesis, "anomalies.md"), "# Anomalies\n\nChanged after approval.\n");
+  const changed = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(changed.status, 1);
+  assert.match(changed.stderr, /changed after staging/);
+  writeFileSync(join(sandbox, synthesis, "anomalies.md"), "# Anomalies\n\nNone found.\n");
+
+  const published = run("navigator", "regenerate", "all", "--root", sandbox);
+  assert.equal(published.status, 0, published.stderr);
+  assert.equal(readFileSync(join(sandbox, "docs/charthouse/documentation-map.md"), "utf8"), "# Documentation map\n\nREADME.md is the entry point.\n");
+  assert.equal(readFileSync(join(sandbox, "docs/charthouse/anomalies.md"), "utf8"), "# Anomalies\n\nNone found.\n");
+});
+
 test("staging refuses a draft Map that changes units or breaks a capability", () => {
   assert.equal(run("init", "--root", sandbox).status, 0);
   acceptAllSurveys(sandbox, run);
@@ -848,6 +971,13 @@ test("Expedition records must match the published schema", async () => {
     "a synthesis input without a report": (record) => { Object.assign(record, { status: "synthesizing", synthesis: { ...synthesis, inputs: { ...synthesis.inputs, reports: {} } } }); },
     "an approved status without an approved draft": (record) => {
       Object.assign(record, { status: "approved", synthesis: { ...synthesis, staged: { at: synthesis.started_at, digest, capabilities: 1 }, approvals: [{ capability: "cap-apps-web", digest, at: synthesis.started_at }] } });
+    },
+    "a publishing status without a publication": (record) => { Object.assign(record, { status: "publishing", synthesis }); },
+    "a finished publication that is not published": (record) => {
+      Object.assign(record, { status: "publishing", synthesis, publication: { started_at: synthesis.started_at, plan_digest: digest, completed_at: synthesis.started_at, written: 1, removed: 0 } });
+    },
+    "a publication with a negative count": (record) => {
+      Object.assign(record, { status: "published", publication: { started_at: synthesis.started_at, plan_digest: digest, completed_at: synthesis.started_at, written: -1, removed: 0 } });
     },
     "a duplicate approval": (record) => {
       const approval = { capability: "cap-apps-web", digest, at: synthesis.started_at };

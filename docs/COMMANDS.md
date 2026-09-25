@@ -196,8 +196,14 @@ report, the synthesis inputs and the staged draft are unchanged, and each
 boundary in the draft is approved. It rescans the repository before it writes
 and refuses when the rescan finds a boundary that no approved capability
 covers. In that case, run `map update`, then follow `expedition resume`.
-Successful regeneration writes the approved boundaries to `.charthouse/map.json`
-and records the current Expedition as published. Without an open Expedition,
+It also refuses a rescan that lost a unit or more than half of the files that
+the approved Map describes. Publication stages every write, records the
+Expedition as `publishing`, then applies the plan. If it stops, run `navigator
+regenerate all` again; the next `map update`, `reconcile`, document
+confirmation, or edit hook also finishes it first. Successful regeneration writes the
+approved boundaries to `.charthouse/map.json`, copies `documentation-map.md`
+and `anomalies.md` from the draft to `docs/charthouse/`, writes a receipt, and
+records the current Expedition as published. Without an open Expedition,
 `navigator regenerate` publishes the approved boundaries in the Map.
 
 The deterministic init result lists discovered Instruction Contracts and any

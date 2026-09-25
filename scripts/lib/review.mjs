@@ -7,6 +7,7 @@ import { gitCommitReachable, gitDiffSince, gitHead, gitLogSince, gitUntracked } 
 import { createGitignoredPolicy, documentFingerprintPolicy } from "./policy.mjs";
 import { loadState, verificationContext, verificationStamp } from "./state.mjs";
 import { withProjectLock } from "./lock.mjs";
+import { finishPendingPublication } from "./publication.mjs";
 import { assertCanonicalCurrent, canonicalRefStatus } from "./freshness.mjs";
 
 export const DIFF_LIMIT = 200 * 1024;
@@ -124,5 +125,8 @@ function confirmDocumentUnlocked(root, id, evidence, { allowBehind = false } = {
 }
 
 export function confirmDocument(root, id, evidence, options = {}) {
-  return withProjectLock(root, "confirm document review", () => confirmDocumentUnlocked(root, id, evidence, options));
+  return withProjectLock(root, "confirm document review", () => {
+    finishPendingPublication(root);
+    return confirmDocumentUnlocked(root, id, evidence, options);
+  });
 }

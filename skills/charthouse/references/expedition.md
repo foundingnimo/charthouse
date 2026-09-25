@@ -189,23 +189,33 @@ When `charthouse expedition status <expedition-id> --json` reports `approved`:
 
 1. Run `charthouse navigator regenerate all --root <repo>`. It writes the
    approved boundaries to `.charthouse/map.json` with `approved: true` and
-   `provenance: human-approved`, and it generates the Navigator views.
-2. Copy the approved documentation map and anomaly report from the draft
-   directory to `docs/charthouse/`.
-3. Run `charthouse check --root <repo>`.
-4. Report Map publication and Bearing health separately. Use
+   `provenance: human-approved`, generates the Navigator views, and copies
+   `documentation-map.md` and `anomalies.md` from the draft directory to
+   `docs/charthouse/`.
+2. Run `charthouse check --root <repo>`.
+3. Report Map publication and Bearing health separately. Use
    `published_with_findings` when the Map is approved but the Bearing has
    errors or warnings. Do not describe the Bearing as healthy in that state.
-5. Show all created files.
+4. Show all created files.
 
 `navigator regenerate` refuses when a survey checkpoint is not valid or its
 report changed after acceptance, when the synthesis inputs or the staged draft
 changed, when a boundary in the draft has no approval, or when its rescan finds
 a new boundary. After a refusal for a new boundary, run `charthouse map update
 --root <repo>`, then `charthouse expedition resume <expedition-id>`, and follow
-its next steps. Initialization and reconciliation do not publish preliminary
-Navigator briefs, Claude agents, path rules, or portable skills. Successful
-regeneration records the Expedition as published.
+its next steps. It also refuses a rescan that lost a unit or more than half of
+the files that the approved Map describes, because such a rescan is usually
+partial. Initialization and reconciliation do not publish preliminary
+Navigator briefs, Claude agents, path rules, or portable skills.
+
+Publication stages every write in `.charthouse/drafts/<expedition-id>/publication/`
+before it changes a file, then records the Expedition as `publishing`. If the
+publication stops, for example because a file cannot be written, fix the cause
+and run `charthouse navigator regenerate all` again. The next `map update`,
+`reconcile`, document confirmation, or edit hook also finishes it first. Finishing needs
+no new approval and does not change the approved result. A successful
+publication writes `receipt.json` in the same directory and records the
+Expedition as published.
 
 Do not add inline `CHARTHOUSE[K-...]` markers during an Expedition. Add approved
 markers in a later Voyage because markers modify product files.

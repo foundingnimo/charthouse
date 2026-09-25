@@ -168,7 +168,9 @@ automatic migration and requires a newer tool or manual recovery.
     changed, while the synthesis inputs or the staged draft changed, or when
     the publication rescan finds a new boundary.
 14. Keep the draft Map and each boundary approval in the Expedition until
-    publication. Do not change canonical state before publication.
+    publication. Do not change canonical state before publication. Stage the
+    publication so that an interrupted one finishes without a new decision,
+    and refuse a partial rescan.
 15. Do not modify product code or add inline markers during initialization.
 
 Survey reports use `schemas/survey-report.schema.json`. Their baseline contains

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Expedition publication is recoverable. `navigator regenerate` stages every
+  write, records the Expedition as `publishing`, and applies the plan with the
+  Map last. A publication that stops finishes on the next `navigator
+  regenerate`, `map update`, `reconcile`, document confirmation, or edit
+  hook, without a new approval. A receipt records the result.
+- Publication refuses a rescan that lost a unit or more than half of the
+  files that the approved Map describes.
+- Publication copies `documentation-map.md` and `anomalies.md` from the draft,
+  and approval covers them.
+
 ## 0.2.0 (2026-09-25)
 
 - `tool gap record` rejects a Voyage or Expedition id that does not exist.

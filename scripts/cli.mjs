@@ -171,7 +171,7 @@ function navigatorCommand(root, action, args, json) {
   if (action === "regenerate") {
     const name = args.join(" ").trim() || "all";
     const result = publishNavigators(root, name);
-    return output({ outcome: "Navigator views regenerated", requested: name, generated: Object.keys(result.manifest.navigators).length, expedition: result.expedition ? { id: result.expedition.id, status: result.expedition.status } : null, note: "Charthouse preserved semantic capability decisions. Restart agent sessions that cache repository skills or agents." }, json);
+    return output({ outcome: result.recovered ? "Interrupted publication finished" : "Navigator views regenerated", requested: name, generated: Object.keys(result.manifest.navigators).length, expedition: result.expedition ? { id: result.expedition.id, status: result.expedition.status } : null, note: "Charthouse preserved semantic capability decisions. Restart agent sessions that cache repository skills or agents." }, json);
   }
   output(`Navigator ${action} needs semantic review. Use the Map as evidence and regenerate only the affected view.`);
 }
@@ -408,7 +408,7 @@ function doctor(root, pluginRoot, json, args = []) {
   if (clearLock !== null && clearLock !== true) throw new Error("--clear-stale-lock does not take a value.");
   rejectArguments(args, "charthouse doctor [--clear-stale-lock]");
   const lockCleanup = clearLock ? clearStaleProjectLock(root) : null;
-  const files = [".claude-plugin/plugin.json", "skills/charthouse/SKILL.md", "skills/charthouse/agents/openai.yaml", "skills/charthouse-context/SKILL.md", "hooks/hooks.json", "bin/charthouse", "scripts/lib/toolbox.mjs", "scripts/lib/tool-gaps.mjs", "scripts/lib/lock.mjs", "scripts/lib/voyages.mjs", "scripts/lib/expedition-state.mjs", "scripts/lib/expeditions.mjs", "schemas/voyage.schema.json", "schemas/expedition.schema.json"];
+  const files = [".claude-plugin/plugin.json", "skills/charthouse/SKILL.md", "skills/charthouse/agents/openai.yaml", "skills/charthouse-context/SKILL.md", "hooks/hooks.json", "bin/charthouse", "scripts/lib/toolbox.mjs", "scripts/lib/tool-gaps.mjs", "scripts/lib/lock.mjs", "scripts/lib/voyages.mjs", "scripts/lib/expedition-state.mjs", "scripts/lib/expeditions.mjs", "scripts/lib/publication.mjs", "schemas/voyage.schema.json", "schemas/expedition.schema.json"];
   const installation = files.map((path) => ({ path, present: exists(resolve(pluginRoot, path)) }));
   const install = installStamp(pluginRoot);
   const adapters = adapterStatus(pluginRoot, install);

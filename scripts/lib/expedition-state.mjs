@@ -37,9 +37,25 @@ function requireShape(value, path, fields, optional = []) {
   }
 }
 
+// A publication record exists from the moment the publisher commits to a staged
+// plan. `completed_at` stays null until every planned write has landed.
+function validatePublication(value, expedition) {
+  const publication = value ?? null;
+  if (expedition.status === "publishing" && (!publication || publication.completed_at !== null)) fail("a publishing Expedition needs an unfinished publication record.");
+  if (!publication) return;
+  requireShape(publication, "publication", ["started_at", "plan_digest", "completed_at", "written", "removed"]);
+  if (!validTime(publication.started_at)) fail("publication.started_at must be a timestamp.");
+  if (!DIGEST.test(publication.plan_digest || "")) fail("publication.plan_digest is invalid.");
+  if (publication.completed_at !== null && !validTime(publication.completed_at)) fail("publication.completed_at must be a timestamp or null.");
+  if (publication.completed_at !== null && expedition.status !== "published") fail("a finished publication belongs to a published Expedition.");
+  for (const field of ["written", "removed"]) {
+    if (!Number.isInteger(publication[field]) || publication[field] < 0) fail(`publication.${field} must be a non-negative integer.`);
+  }
+}
+
 function validateSynthesis(value, expedition) {
   const synthesis = value ?? null;
-  if (SYNTHESIS_STATUSES.has(expedition.status) && !synthesis) fail(`a ${expedition.status} Expedition needs a synthesis record.`);
+  if ((SYNTHESIS_STATUSES.has(expedition.status) || expedition.status === "publishing") && !synthesis) fail(`a ${expedition.status} Expedition needs a synthesis record.`);
   if (["surveying", "ready-for-synthesis"].includes(expedition.status) && synthesis) fail(`a ${expedition.status} Expedition cannot have a synthesis record.`);
   if (!synthesis) return;
   requireShape(synthesis, "synthesis", ["started_at", "draft_path", "inputs", "staged", "approvals", "approved_digest"]);
@@ -77,7 +93,7 @@ function validateSynthesis(value, expedition) {
 }
 
 export function validateExpedition(value) {
-  requireShape(value, "record", ["schema_version", "id", "status", "created_at", "updated_at", "baseline", "draft_root", "surveys", "events"], ["synthesis"]);
+  requireShape(value, "record", ["schema_version", "id", "status", "created_at", "updated_at", "baseline", "draft_root", "surveys", "events"], ["synthesis", "publication"]);
   if (value.schema_version !== EXPEDITION_SCHEMA_VERSION) fail(`schema_version must be ${EXPEDITION_SCHEMA_VERSION}.`);
   if (!EXPEDITION_ID.test(value.id || "")) fail("id must use E-0001 form.");
   if (![...OPEN_STATUSES, "published", "invalidated", "failed", "abandoned"].includes(value.status)) fail(`unsupported status ${value.status || "missing"}.`);
@@ -111,6 +127,7 @@ export function validateExpedition(value) {
     }
   }
   validateSynthesis(value.synthesis, value);
+  validatePublication(value.publication, value);
   if (!Array.isArray(value.events)) fail("events must be an array.");
   value.events.forEach((event, index) => {
     const path = `events[${index}]`;
@@ -196,6 +213,7 @@ export function createExpeditionCheckpoint(root, { map, fingerprints, canonical 
     draft_root: draftRoot,
     surveys,
     synthesis: null,
+    publication: null,
     events: [{ at: now, type: "started", detail: "The deterministic Expedition scaffold is ready." }]
   };
   validateExpedition(expedition);
@@ -301,13 +319,25 @@ export function recordApprovals(root, expedition, approvals, capabilities) {
   return writeExpedition(root, next);
 }
 
-export function recordExpeditionPublished(root, expedition, detail = "Approved Map and Navigator views published.") {
-  if (!expedition || expedition.status === "published") return expedition || null;
+// The commit point of a publication: the staged plan is complete, so any later
+// writer can finish it without a new decision.
+export function recordPublicationStarted(root, expedition, planDigest) {
+  const now = new Date().toISOString();
+  const next = structuredClone(expedition);
+  next.status = "publishing";
+  next.publication = { started_at: now, plan_digest: planDigest, completed_at: null, written: 0, removed: 0 };
+  next.updated_at = now;
+  next.events.push({ at: now, type: "publication-started", detail: "The approved Map and its views are staged for publication." });
+  return writeExpedition(root, next);
+}
+
+export function recordPublicationFinished(root, expedition, { written, removed }) {
   const now = new Date().toISOString();
   const next = structuredClone(expedition);
   next.status = "published";
+  next.publication = { ...next.publication, completed_at: now, written, removed };
   next.updated_at = now;
-  next.events.push({ at: now, type: "published", detail });
+  next.events.push({ at: now, type: "published", detail: `Approved Map and Navigator views published: ${written} written, ${removed} removed.` });
   return writeExpedition(root, next);
 }
 

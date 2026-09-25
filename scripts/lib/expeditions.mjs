@@ -1,15 +1,20 @@
-import { copyFileSync, lstatSync } from "node:fs";
+import { copyFileSync, lstatSync, readFileSync } from "node:fs";
+import { posix } from "node:path";
 import { PATHS, SURVEY_REPORT_ROLES } from "./constants.mjs";
 import {
-  expeditionIsOpen, listExpeditions, readExpedition, recordApprovals, recordExpeditionPublished,
+  expeditionIsOpen, listExpeditions, readExpedition, recordApprovals,
   recordSurveyValidation, recordSynthesisStaged, recordSynthesisStarted
 } from "./expedition-state.mjs";
 import { digestJson, exists, fingerprintFile, readJson, repoPath, writeJson } from "./fs.mjs";
 import { withProjectLock } from "./lock.mjs";
+import { beginPublication, finishPendingPublication, finishPublication, plannedWrites } from "./publication.mjs";
 import { applyMapUpdate, buildMapUpdate, loadState, repositoryReconciliationStatus } from "./state.mjs";
 import { validateSurveyReport } from "./survey-report.mjs";
 
 const TERMINAL_STATUSES = ["published", "invalidated", "failed", "abandoned"];
+// Drafts that the synthesizer writes beside the draft Map. Approval covers
+// them, and publication copies them to docs/charthouse/.
+const DRAFT_DOCUMENTS = ["documentation-map.md", "anomalies.md"];
 
 // A report whose file still matches its valid checkpoint is revalidated as
 // accepted; any other report must match the current Map exactly.
@@ -72,17 +77,48 @@ function synthesisInputs(state, expedition) {
   };
 }
 
+function draftDocumentPath(expedition, name) {
+  return `${posix.dirname(expedition.synthesis.draft_path)}/${name}`;
+}
+
+function fileState(root, path) {
+  const absolute = repoPath(root, path);
+  if (!exists(absolute)) return null;
+  return lstatSync(absolute).isSymbolicLink() ? "symbolic-link" : fingerprintFile(absolute);
+}
+
+// The staged digest covers the draft Map and each draft document, so that an
+// approval covers everything that publication writes from the draft.
+function draftDigest(root, expedition) {
+  return digestJson(Object.fromEntries([
+    ["map.json", fileState(root, expedition.synthesis.draft_path)],
+    ...DRAFT_DOCUMENTS.map((name) => [name, fileState(root, draftDocumentPath(expedition, name))])
+  ]));
+}
+
+function readDraftDocuments(root, expedition) {
+  const documents = [];
+  for (const name of DRAFT_DOCUMENTS) {
+    const path = draftDocumentPath(expedition, name);
+    const absolute = repoPath(root, path);
+    if (!exists(absolute)) continue;
+    if (lstatSync(absolute).isSymbolicLink()) throw new Error(`A draft document must be a regular file, not a symbolic link: ${path}`);
+    documents.push({ path: `${PATHS.docs}/${name}`, text: readFileSync(absolute, "utf8") });
+  }
+  return documents;
+}
+
 // What moved since synthesis started: the scan configuration, the Map
-// structure, an accepted survey report, or the staged draft Map.
+// structure, an accepted survey report, or the staged draft.
 function synthesisDrift(root, state, expedition) {
-  const { inputs, staged, draft_path: draftPath } = expedition.synthesis;
+  const { inputs, staged } = expedition.synthesis;
   const moved = [];
   if (state.fingerprints.config_digest !== inputs.config_digest) moved.push("scan configuration");
   if (mapDigest(state.map) !== inputs.map_digest) moved.push("Map units or capability boundaries");
   for (const role of SURVEY_REPORT_ROLES) {
     if (fileChanged(root, expedition.surveys[role].report_path, inputs.reports[role])) moved.push(`${role} report`);
   }
-  return { inputs: moved, draft: staged !== null && fileChanged(root, draftPath, staged.digest) };
+  return { inputs: moved, draft: staged !== null && draftDigest(root, expedition) !== staged.digest };
 }
 
 function assertSynthesisCurrent(root, state, expedition, { draft = false } = {}) {
@@ -173,6 +209,12 @@ function surveyCheckpoints(root, expedition, state) {
   return { surveys, reusable, nextRoles };
 }
 
+function assertNotPublishing(expedition) {
+  if (expedition.status === "publishing") {
+    throw new Error(`${expedition.id} is publishing. Run \`charthouse navigator regenerate all\` to finish the publication first.`);
+  }
+}
+
 function surveyInstructions(expedition, roles) {
   return roles.map((role) => `Store the ${role} report at ${expedition.surveys[role].report_path}, then run \`charthouse expedition accept-report ${expedition.id} --role ${role} --file ${expedition.surveys[role].report_path}\`.`);
 }
@@ -182,14 +224,17 @@ function surveyInstructions(expedition, roles) {
 // against a Map that a later `map update` rewrote.
 function summarizeSynthesis(root, expedition, state) {
   const { id, synthesis } = expedition;
-  const drift = state ? synthesisDrift(root, state, expedition) : { inputs: [], draft: false };
+  // A publication in progress already passed every check. Only finishing it is left.
+  const drift = state && expedition.status !== "publishing" ? synthesisDrift(root, state, expedition) : { inputs: [], draft: false };
   const current = drift.inputs.length === 0;
   // A restart needs survey reports that are valid for the current Map.
   const checkpoints = current || !state
     ? surveyCheckpoints(root, expedition, null)
     : surveyCheckpoints(root, expedition, state);
   let next;
-  if (!current) {
+  if (expedition.status === "publishing") {
+    next = [`Publication of ${id} was interrupted. Run \`charthouse navigator regenerate all\` to finish it. The approved result does not change.`];
+  } else if (!current) {
     next = [
       `The synthesis inputs changed: ${drift.inputs.join(", ")}.`,
       ...surveyInstructions(expedition, checkpoints.nextRoles),
@@ -268,6 +313,7 @@ export function acceptExpeditionReport(root, id, { role, file }) {
     if (!expeditionIsOpen(expedition)) {
       throw new Error(`${id} is ${expedition.status}; it cannot accept a survey report.`);
     }
+    assertNotPublishing(expedition);
     const expected = expedition.surveys[role].report_path;
     if (file !== expected) {
       throw new Error(`The ${role} report must use its isolated path: ${expected}`);
@@ -290,6 +336,7 @@ export function synthesizeExpedition(root, id, { restart = false } = {}) {
   return withProjectLock(root, `start synthesis for ${id}`, () => {
     const expedition = readExpedition(root, id);
     if (!expeditionIsOpen(expedition)) throw new Error(`${id} is ${expedition.status}; it cannot start synthesis.`);
+    assertNotPublishing(expedition);
     if (expedition.synthesis && !restart) {
       return { outcome: "Synthesis already started", started: false, expedition: summarize(root, expedition) };
     }
@@ -322,6 +369,7 @@ export function synthesizeExpedition(root, id, { restart = false } = {}) {
 
 function requireSynthesis(expedition, statuses) {
   if (!expeditionIsOpen(expedition)) throw new Error(`${expedition.id} is ${expedition.status}; it has no open synthesis.`);
+  assertNotPublishing(expedition);
   if (!expedition.synthesis) throw new Error(`${expedition.id} has not started synthesis. Run \`charthouse expedition synthesize ${expedition.id}\`.`);
   if (!statuses.includes(expedition.status)) {
     throw new Error(`${expedition.id} is ${expedition.status}. Run \`charthouse expedition stage ${expedition.id}\` first.`);
@@ -338,7 +386,8 @@ export function stageExpeditionMap(root, id) {
     const errors = draftMapErrors(draft, state.map);
     if (errors.length) throw new Error(`The draft Map cannot be staged:\n- ${errors.join("\n- ")}`);
     const capabilities = draft.capabilities.map((capability) => ({ id: capability.id, digest: capabilityDigest(capability) }));
-    const digest = fingerprintFile(repoPath(root, expedition.synthesis.draft_path));
+    readDraftDocuments(root, expedition);
+    const digest = draftDigest(root, expedition);
     const { expedition: updated, dropped } = recordSynthesisStaged(root, expedition, { digest, capabilities });
     return {
       outcome: "Draft Map staged",
@@ -408,11 +457,29 @@ function approvedDraft(root, state, expedition) {
   return { ...draft, capabilities: draft.capabilities.map((capability) => ({ ...capability, approved: true, provenance: "human-approved" })) };
 }
 
+// Refuse to replace a published result with a partial one. A rescan that lost
+// a unit or most files usually means a checkout in progress or an unreadable
+// directory, not an intended change.
+function assertComplete(map, previous, remedy) {
+  const units = new Set(map.units.map((unit) => unit.id));
+  const lost = previous.units.filter((unit) => !units.has(unit.id)).map((unit) => unit.id);
+  if (lost.length) {
+    throw new Error(`Publication refused: the rescan lost ${lost.length === 1 ? "a unit" : "units"} that the approved Map describes: ${lost.join(", ")}. ${remedy}`);
+  }
+  const before = previous.files?.length || 0;
+  if (before && map.files.length * 2 < before) {
+    throw new Error(`Publication refused: the rescan found ${map.files.length} files, fewer than half of the ${before} files that the approved Map describes. ${remedy}`);
+  }
+}
+
 // Check the approvals, the survey checkpoints, and the rescanned candidate
 // under one lock, and write nothing until all pass. A package added after
-// approval appears in the candidate as a new preliminary boundary.
+// approval appears in the candidate as a new preliminary boundary. An
+// Expedition publishes through a staged plan that a later writer can finish.
 export function publishNavigators(root, name = "all") {
   return withProjectLock(root, "publish Navigator views", () => {
+    const recovered = finishPendingPublication(root);
+    if (recovered) return { recovered: true, manifest: loadState(root).manifest, expedition: recovered };
     const state = loadState(root);
     const expedition = [...listExpeditions(root)].reverse().find(expeditionIsOpen) || null;
     if (!expedition) assertApproved(state.map.capabilities);
@@ -429,8 +496,15 @@ export function publishNavigators(root, name = "all") {
     assertApproved(update.map.capabilities, expedition
       ? `The repository changed after approval. Run \`charthouse map update\`, then \`charthouse expedition resume ${expedition.id}\` for the next step.`
       : "The repository changed after approval. Run `charthouse map update`, review each new boundary, and approve it before you publish.");
-    const result = applyMapUpdate(root, update);
-    return { ...result, expedition: expedition ? recordExpeditionPublished(root, expedition) : null };
+    assertComplete(update.map, semantic || update.current.map, expedition
+      ? `If the change is intended, run \`charthouse map update\`, then \`charthouse expedition synthesize ${expedition.id} --restart\`.`
+      : "If the change is intended, run `charthouse map update` first.");
+    if (!expedition) return { ...applyMapUpdate(root, update), expedition: null };
+    const writes = plannedWrites();
+    const result = applyMapUpdate(root, update, writes);
+    for (const document of readDraftDocuments(root, expedition)) writes.write(document.path, document.text);
+    const started = beginPublication(root, expedition, writes.entries.values());
+    return { ...result, expedition: finishPublication(root, started) };
   });
 }
 

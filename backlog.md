@@ -32,7 +32,7 @@ Status values:
 - [x] Keep accepted survey reports valid before synthesis when a `map update`
   changes only file contents. Accepted reports are checked against the
   current Map structure, not its generation time or commit.
-- [ ] Publish approved Expedition artifacts through a recoverable atomic
+- [x] Publish approved Expedition artifacts through a recoverable atomic
   publisher with a recorded completion receipt. Refuse to replace a published
   result with a partial one, such as a rescan that lost units or most files.
 
