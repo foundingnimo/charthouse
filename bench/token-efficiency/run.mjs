@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderReport, runMetrics, summarize } from "./lib.mjs";
+import { answerFailures, renderReport, runMetrics, summarize } from "./lib.mjs";
 
 const CHARTHOUSE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CONDITIONS = ["base", "charthouse"];
@@ -223,10 +223,7 @@ function changedPaths(clone) {
 // when the session itself finished without an error.
 function checkTask(task, clone, answer, metrics) {
   const check = task.check || {};
-  const failures = [];
-  for (const value of check.answer_includes || []) {
-    if (!answer.toLowerCase().includes(String(value).toLowerCase())) failures.push(`answer lacks "${value}"`);
-  }
+  const failures = answerFailures(check, answer);
   if (check.changed_paths) {
     const changed = changedPaths(clone);
     for (const path of check.changed_paths) if (!changed.has(path)) failures.push(`${path} did not change`);
@@ -313,6 +310,29 @@ function run(values) {
   }
 }
 
+// Grade stored answers again after an answer check turns out to be wrong. Only
+// tasks whose checks read the answer alone can be graded again: the clone of a
+// finished trial is gone. The first verdict stays in `original_success`.
+function regrade(values) {
+  const work = resolve(values.work || fail("--work <dir> is required."));
+  const p = paths(work);
+  if (!existsSync(p.results)) fail(`No results in ${work}. Run \`run\` first.`);
+  const tasks = new Map(JSON.parse(readFileSync(resolve(values.tasks || fail("--tasks <file> is required.")), "utf8")).map((task) => [task.id, task]));
+  const answerOnly = (check = {}) => !check.command && !check.changed_paths && (check.answer_includes || check.answer_includes_any);
+  let changed = 0;
+  const lines = readFileSync(p.results, "utf8").split("\n").filter(Boolean).map((line) => {
+    const record = JSON.parse(line);
+    const task = tasks.get(record.task);
+    if (!task || !answerOnly(task.check)) return line;
+    const failures = [...answerFailures(task.check, record.answer), ...(record.metrics?.failed ? ["the session ended with an error"] : [])];
+    const success = failures.length === 0;
+    if (success !== record.success) changed += 1;
+    return JSON.stringify({ ...record, original_success: record.original_success ?? record.success, success, failures });
+  });
+  writeFileSync(p.results, `${lines.join("\n")}\n`);
+  process.stdout.write(`Graded ${lines.length} records again; ${changed} changed.\n`);
+}
+
 function report(values) {
   const work = resolve(values.work || fail("--work <dir> is required."));
   const p = paths(work);
@@ -325,6 +345,6 @@ function report(values) {
 }
 
 const [command, ...rest] = process.argv.slice(2);
-const commands = { prepare, "check-auth": checkAuth, setup, run, report };
+const commands = { prepare, "check-auth": checkAuth, setup, run, regrade, report };
 if (!commands[command]) fail(`Usage: node run.mjs <${Object.keys(commands).join("|")}> --work <dir> [options]. See README.md.`);
 commands[command](options(rest));

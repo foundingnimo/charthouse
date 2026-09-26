@@ -25,6 +25,20 @@ export function runMetrics(result) {
   };
 }
 
+// Checks on the final answer. `answer_includes` needs every value;
+// `answer_includes_any` needs every value of at least one alternative, for a
+// question with more than one correct answer. Case does not matter.
+export function answerFailures(check = {}, answer = "") {
+  const text = String(answer).toLowerCase();
+  const has = (value) => text.includes(String(value).toLowerCase());
+  const failures = (check.answer_includes || []).filter((value) => !has(value)).map((value) => `answer lacks "${value}"`);
+  const alternatives = check.answer_includes_any || [];
+  if (alternatives.length && !alternatives.some((values) => values.every(has))) {
+    failures.push(`answer matches none of ${alternatives.length} accepted answers`);
+  }
+  return failures;
+}
+
 export function median(values) {
   const sorted = values.filter((value) => typeof value === "number" && Number.isFinite(value)).sort((left, right) => left - right);
   if (!sorted.length) return null;

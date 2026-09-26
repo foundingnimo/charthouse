@@ -104,6 +104,9 @@ A task file is a JSON array. Each task has an `id`, a `prompt`, and a `check`:
 
 - `answer_includes`: text that the final answer must contain, without regard
   to case.
+- `answer_includes_any`: a list of alternatives, each a list of text. The
+  answer passes when it contains every item of one alternative. Use it for a
+  question with more than one correct answer.
 - `changed_paths`: files that the session must change.
 - `command`: a shell command that must exit with status 0 in the clone after
   the session, such as a test command.
@@ -112,6 +115,21 @@ Use tasks from the real work of the repository: orientation, change impact,
 small fixes with tests, and reviews. Ask for short, checkable answers.
 Charthouse is designed for repositories where orientation is expensive, so a
 large repository shows more than a small one.
+
+## Correct a wrong answer check
+
+A question can have a correct answer that its check did not expect. Fix the
+check in the task file, then grade the stored answers again instead of paying
+for new sessions:
+
+```bash
+node bench/token-efficiency/run.mjs regrade --work ~/charthouse-bench --tasks <fixed tasks.json>
+node bench/token-efficiency/run.mjs report --work ~/charthouse-bench
+```
+
+Only tasks whose checks read the answer alone are graded again, because the
+clone of a finished trial is gone. Each record keeps its first verdict in
+`original_success`.
 
 ## Read the results
 

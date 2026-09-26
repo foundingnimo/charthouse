@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { median, renderReport, runMetrics, summarize } from "../bench/token-efficiency/lib.mjs";
+import { answerFailures, median, renderReport, runMetrics, summarize } from "../bench/token-efficiency/lib.mjs";
 
 // The shape that `claude -p --output-format json` prints, with a subagent model.
 function result({ cost, main, subagent = null, turns = 3, error = false }) {
@@ -30,6 +30,14 @@ test("run metrics count every model, including subagents", () => {
   assert.equal(metrics.subagents, 1);
   assert.equal(metrics.failed, false);
   assert.equal(runMetrics(result({ cost: 0.1, main: usage(1, 1, 1, 1, 0.1), error: true })).failed, true);
+});
+
+test("answer checks accept alternatives for a question with two correct answers", () => {
+  const check = { answer_includes: ["access/stories.ts"], answer_includes_any: [["api/teach/index.ts"], ["api/teach/stories.ts"]] };
+  assert.deepEqual(answerFailures(check, "It is Worker/Access/Stories.ts, used by worker/api/teach/stories.ts."), []);
+  assert.deepEqual(answerFailures(check, "worker/access/stories.ts only"), ["answer matches none of 2 accepted answers"]);
+  assert.deepEqual(answerFailures({ answer_includes: ["a", "b"] }, "only a"), ['answer lacks "b"']);
+  assert.deepEqual(answerFailures({}, "anything"), []);
 });
 
 test("median handles odd and even counts and ignores missing values", () => {
