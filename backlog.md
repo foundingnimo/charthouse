@@ -26,6 +26,10 @@ Status values:
 - [x] Prevent mapper shell commands from writing repository files, or detect
   and reject every write before synthesis. A survey window records HEAD and
   each changed product file; acceptance rejects a report when they changed.
+- [ ] Let the capability survey report several capabilities inside one
+  repository unit. The validator requires capability units to partition the
+  unit set, so a single-package application can report only one capability,
+  and synthesis must rebuild the real boundaries from findings.
 - [ ] Extend write detection to Charthouse-managed host paths such as
   `.claude/` and `.agents/`, to ignored files, and to the synthesizer, without
   flagging files that the host itself writes. Git does not see an edit to a
