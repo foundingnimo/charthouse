@@ -39,12 +39,20 @@ function sh(command, args, { cwd, env = process.env, allowFailure = false, timeo
 
 const git = (cwd, ...args) => sh("git", ["-c", "user.name=Charthouse Bench", "-c", "user.email=bench@charthouse.local", "-c", "commit.gpgsign=false", ...args], { cwd });
 
+// Configurations can live outside the work directory, so that a second
+// benchmark reuses environments that are already logged in.
+function configRoot(work) {
+  const file = join(work, "bench.json");
+  const recorded = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).config_root : null;
+  return recorded || join(work, "config");
+}
+
 function paths(work) {
   return {
     work,
     state: join(work, "bench.json"),
     clone: (condition) => join(work, condition),
-    config: (condition) => join(work, "config", condition),
+    config: (condition) => join(configRoot(work), condition),
     runtime: join(work, "runtime"),
     agentSkills: join(work, "agent-skills"),
     snapshot: join(work, "reconciliation-snapshot"),
@@ -85,19 +93,30 @@ function prepare(values) {
   const ref = values.ref || "HEAD";
   const p = paths(work);
   if (existsSync(p.state)) fail(`${work} already holds a benchmark. Use a new --work directory.`);
+  const configs = values["config-root"] ? resolve(values["config-root"]) : join(work, "config");
+  // Paths to remove from both clones, such as state from an earlier context tool
+  // that would give the plain environment part of what Charthouse provides.
+  const strip = values.strip ? String(values.strip).split(",").map((item) => item.trim()).filter(Boolean) : [];
   mkdirSync(work, { recursive: true });
   for (const condition of CONDITIONS) {
-    sh("git", ["clone", "--quiet", repo, p.clone(condition)], { cwd: work });
-    git(p.clone(condition), "checkout", "--quiet", "-B", BRANCH, ref);
-    mkdirSync(p.config(condition), { recursive: true });
+    const clone = p.clone(condition);
+    sh("git", ["clone", "--quiet", repo, clone], { cwd: work });
+    git(clone, "checkout", "--quiet", "-B", BRANCH, ref);
+    if (strip.length) {
+      git(clone, "rm", "-r", "-q", "--ignore-unmatch", "--", ...strip);
+      if (git(clone, "diff", "--cached", "--name-only").stdout.trim()) git(clone, "commit", "--quiet", "-m", "Remove paths for the benchmark");
+    }
+    // Ignored dependency folders survive the reset between trials, so install once.
+    if (values.install) sh("sh", ["-c", String(values.install)], { cwd: clone, timeout: 30 * 60 * 1000 });
+    mkdirSync(join(configs, condition), { recursive: true });
     // A login made before prepare keeps its settings; the installer adds hooks to them.
-    if (!existsSync(join(p.config(condition), "settings.json"))) writeFileSync(join(p.config(condition), "settings.json"), "{}\n");
+    if (!existsSync(join(configs, condition, "settings.json"))) writeFileSync(join(configs, condition, "settings.json"), "{}\n");
   }
   const commit = git(p.clone("base"), "rev-parse", "HEAD").stdout.trim();
   // The Charthouse environment gets the sidecar skills and lifecycle hooks, and nothing else.
   sh("sh", [join(CHARTHOUSE_ROOT, "install.sh"), "--host", "claude", "--yes"], {
     cwd: CHARTHOUSE_ROOT,
-    env: { ...process.env, CLAUDE_CONFIG_DIR: p.config("charthouse"), CHARTHOUSE_HOME: p.runtime, AGENT_SKILLS_DIR: p.agentSkills }
+    env: { ...process.env, CLAUDE_CONFIG_DIR: join(configs, "charthouse"), CHARTHOUSE_HOME: p.runtime, AGENT_SKILLS_DIR: p.agentSkills }
   });
   // Results belong to one Charthouse build, so record which one this checkout installed.
   const charthouse = {
@@ -105,7 +124,7 @@ function prepare(values) {
     commit: git(CHARTHOUSE_ROOT, "rev-parse", "--short", "HEAD").stdout.trim(),
     dirty: git(CHARTHOUSE_ROOT, "status", "--porcelain").stdout.trim() !== ""
   };
-  writeFileSync(p.state, `${JSON.stringify({ repo, ref, commit, charthouse, charthouse_commit: null, created_at: new Date().toISOString() }, null, 2)}\n`);
+  writeFileSync(p.state, `${JSON.stringify({ repo, ref, commit, strip, install: values.install || null, config_root: configs, charthouse, charthouse_commit: null, created_at: new Date().toISOString() }, null, 2)}\n`);
   process.stdout.write(`Prepared ${work} at ${commit}.\nNext: log in once per environment (see README), then run \`check-auth\`.\n`);
 }
 

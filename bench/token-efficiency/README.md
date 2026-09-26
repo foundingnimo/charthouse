@@ -47,6 +47,17 @@ setup cost plus all trials past the cap.
      --work ~/charthouse-bench --repo /path/to/repository --ref <commit>
    ```
 
+   Options for `prepare`:
+
+   - `--strip <paths>`: comma-separated paths to remove from both clones in
+     one commit, such as state from an earlier context tool that would give
+     the plain environment part of what Charthouse provides.
+   - `--install <command>`: a command to run once in each clone, such as
+     `npm ci`. Ignored dependency folders survive the reset between trials.
+   - `--config-root <dir>`: reuse the `base` and `charthouse` configurations
+     of an earlier benchmark, so that you do not log in again. Run one
+     benchmark at a time with shared configurations.
+
 2. Log in once in each environment, because each has its own configuration:
 
    ```bash
