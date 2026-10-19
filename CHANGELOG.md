@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.1 (2026-10-19)
+
 - `check` measures Navigator coverage after the first publication.
   Overlapping primary paths and unapproved boundaries are warnings. Maintained
   files with no Navigator, placeholder purposes, and weak evidence are
