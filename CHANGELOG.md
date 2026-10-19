@@ -12,7 +12,6 @@
   ignore Charthouse and host folders. Stored root fingerprints change once, so
   a document that watches the repository root can show as suspect one time
   after the upgrade.
-
 - `init` moves generated Navigator views from an earlier Charthouse state to
   the Expedition's `retired-views/` draft folder, so that hosts do not discover
   stale Navigators and new surveys do not reuse their names.
